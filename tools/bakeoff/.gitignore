@@ -5,3 +5,5 @@ inputs/*.jpg
 inputs/*.jpeg
 inputs/*.webp
 !inputs/.gitkeep
+__pycache__/
+*.py[cod]

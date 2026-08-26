@@ -1,0 +1,7 @@
+out/
+.venv/
+inputs/*.png
+inputs/*.jpg
+inputs/*.jpeg
+inputs/*.webp
+!inputs/.gitkeep

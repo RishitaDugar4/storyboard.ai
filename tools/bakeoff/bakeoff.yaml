@@ -1,0 +1,58 @@
+# Provider bake-off configuration.
+#
+# Start small: one economy workhorse, one mid-tier, one premium benchmark.
+# Enabling more is a one-line addition -- every key below exists in catalog.py.
+
+output_dir: out
+inputs_dir: inputs
+
+# ---------------------------------------------------------------------------
+# Models under test. Comment lines back in to widen the matrix.
+# ---------------------------------------------------------------------------
+models:
+  - kling-2.5-turbo-i2v        # ECONOMY  workhorse candidate (fal)
+  - hailuo-02-pro-i2v          # STANDARD mid-tier, flat per-clip price (fal)
+  - veo-3.1-standard-i2v       # PREMIUM  benchmark (Gemini, direct)
+
+  # Ready to enable once you want them:
+  # - veo-3.1-fast-i2v         # reference images at 1/4 of Veo Standard
+  # - wan-2.5-i2v              # cheapest listed        (EXPERIMENTAL)
+  # - runway-gen4-turbo-i2v    # Runway-compatible      (EXPERIMENTAL)
+  # - luma-ray2-i2v            # Runway-compatible      (EXPERIMENTAL)
+
+# Cap generations per model. The premium benchmark only needs a few samples
+# to answer "is it visibly better"; the workhorse needs the full matrix.
+sample_limits:
+  veo-3.1-standard-i2v: 2
+
+# ---------------------------------------------------------------------------
+# Experiment shape
+# ---------------------------------------------------------------------------
+cases: [static-subtle, push-in, pan, action]
+durations: [6]            # authorial intent; each model resolves to its own grid
+repeats: 1                # 2 gives a consistency signal at double the cost
+resolution: 1080p
+aspect_ratio: "16:9"
+seed: 20260825            # applied only where the model supports seeds
+motion_language: "Gentle, unhurried camera movement."
+
+# ---------------------------------------------------------------------------
+# Money. Two independent controls:
+#   budget_usd                    - ceiling for the whole run
+#   max_cost_per_generation_usd   - authorization ceiling for ONE generation.
+# A generation is refused if its estimate exceeds the per-generation cap, and
+# the run is refused if the authorized total exceeds the budget. The estimate
+# is never the control -- these caps are.
+# ---------------------------------------------------------------------------
+budget_usd: 25
+max_cost_per_generation_usd: 3.50
+
+max_concurrent:
+  fal: 4
+  veo: 2
+  task_api: 2
+
+# Fake-mode tuning (--fake): divides each model's declared latency, and can
+# inject refusals so the error paths get exercised.
+fake_speed: 25
+fake_failure_rate: 0.0

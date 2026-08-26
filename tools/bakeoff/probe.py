@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -117,6 +118,24 @@ def _probe_with_ffmpeg(path: Path) -> Probe:
     )
 
 
+@lru_cache(maxsize=1)
+def has_drawtext() -> bool:
+    """Not every ffmpeg build ships drawtext (it needs libfreetype).
+
+    Homebrew's default build often omits it while the pip static build has it,
+    so which binary wins on PATH changes the answer. The burned-in label is a
+    convenience, never a reason to fail a generation.
+    """
+    if not HAVE_FFMPEG:
+        return False
+    try:
+        out = subprocess.run([FFMPEG, "-hide_banner", "-filters"],
+                             capture_output=True, text=True, timeout=30).stdout
+        return " drawtext " in out
+    except Exception:
+        return False
+
+
 RES_DIMS = {"480p": (854, 480), "540p": (960, 540), "720p": (1280, 720),
             "768p": (1366, 768), "1080p": (1920, 1080)}
 
@@ -140,23 +159,38 @@ async def synthesize_clip(
     fps = 24
     frames = max(1, int(duration_s * fps))
     text = label.replace(":", r"\:").replace("'", "")
-    vf = (
+    base = (
         f"scale={w * 2}:-2:flags=lanczos,"
         f"zoompan=z='min(1.0+0.12*on/{frames},1.12)':"
         f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"d={frames}:s={w * 2}x{h * 2}:fps={fps},"
         f"scale={w}:{h}:flags=lanczos,"
+    )
+    caption = (
         f"drawtext=text='{text}':fontcolor=white:fontsize={max(14, h // 28)}:"
         f"box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=h-th-24,"
-        f"format=yuv420p,setsar=1"
     )
-    proc = await asyncio.create_subprocess_exec(
-        FFMPEG, "-y", "-loglevel", "error", "-loop", "1", "-i", str(first_frame),
-        "-t", f"{duration_s:g}", "-vf", vf, "-r", str(fps),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", str(dest),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    _, err = await proc.communicate()
-    if proc.returncode != 0:
+    tail = "format=yuv420p,setsar=1"
+
+    async def _encode(vf: str) -> tuple[int, bytes]:
+        proc = await asyncio.create_subprocess_exec(
+            FFMPEG, "-y", "-loglevel", "error", "-loop", "1",
+            "-i", str(first_frame), "-t", f"{duration_s:g}", "-vf", vf,
+            "-r", str(fps), "-c:v", "libx264", "-preset", "veryfast",
+            "-crf", "26", str(dest),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        return proc.returncode, err
+
+    labelled = has_drawtext()
+    rc, err = await _encode(base + (caption if labelled else "") + tail)
+    if rc != 0 and labelled:
+        # Some builds advertise drawtext but fail on fontconfig. Never lose a
+        # clip over a caption.
+        rc, err = await _encode(base + tail)
+        if rc == 0:
+            return True, "label omitted (drawtext unavailable)"
+    if rc != 0:
         return False, f"ffmpeg failed: {err.decode()[-400:]}"
-    return True, ""
+    return True, "" if labelled else "label omitted (no drawtext in this ffmpeg)"

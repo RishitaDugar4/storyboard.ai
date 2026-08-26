@@ -9,13 +9,14 @@ Graduates to ``apps/api/app/ai/catalog.py`` unchanged.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+import re
+from dataclasses import dataclass, field, replace
 from datetime import date
 from enum import StrEnum
-from typing import Iterable, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping
 
 # Bump when any entry changes. Recorded on every generation for reproducibility.
-CATALOG_VERSION = "2026-08-25.1"
+CATALOG_VERSION = "2026-08-26.1"
 
 
 class ModelTier(StrEnum):
@@ -113,6 +114,14 @@ class Pricing:
         return ((today or date.today()) - self.verified_at).days
 
 
+#: Legacy payload shape, used only by EXPERIMENTAL entries whose real schema
+#: has not been read yet. ACTIVE entries must declare their own field list.
+GENERIC_REQUEST_FIELDS = frozenset({
+    "prompt", "image_url", "duration", "resolution", "aspect_ratio",
+    "negative_prompt", "seed",
+})
+
+
 @dataclass(frozen=True)
 class VideoModelCaps:
     """Everything the application needs to know about one image-to-video model."""
@@ -139,18 +148,42 @@ class VideoModelCaps:
     max_wait_s: int
     retention_hours: int | None     # None = provider keeps media indefinitely
 
+    #: Exact provider input fields this endpoint accepts. The adapter filters
+    #: its payload through this allowlist, so sending a field the model does
+    #: not define is impossible. Verified against the provider's OpenAPI schema
+    #: for ACTIVE entries; EXPERIMENTAL entries fall back to a generic set.
+    request_fields: frozenset[str] = frozenset(GENERIC_REQUEST_FIELDS)
+    #: Fixed provider params merged into every request (e.g. disabling a
+    #: provider-side prompt rewriter).
+    extra_params: Mapping[str, Any] = field(default_factory=dict)
+    #: False when the endpoint has no resolution / aspect input at all -- the
+    #: output follows the model or the input image. Planning must not pretend
+    #: to control what the API does not expose.
+    resolution_selectable: bool = True
+    aspect_selectable: bool = True
+
     docs_url: str = ""
     pinned_version: str | None = None   # provider-reported version, if any
     notes: str = ""
 
+    @staticmethod
+    def _height(label: str) -> int:
+        m = re.search(r"(\d+)", label)
+        return int(m.group(1)) if m else 0
+
     def best_resolution(self, preferred: str) -> str:
-        if preferred in self.resolutions:
+        """Exact match wins; else the largest option not exceeding `preferred`;
+        else the smallest available. Returns the provider's literal token
+        (fal uses '768P' where we say '768p') so adapters can send it verbatim."""
+        if not self.resolutions:
             return preferred
-        order = ["1080p", "768p", "720p", "540p", "480p"]
-        for r in order:
-            if r in self.resolutions:
+        for r in self.resolutions:
+            if r.lower() == preferred.lower():
                 return r
-        return self.resolutions[0]
+        want = self._height(preferred)
+        under = [r for r in self.resolutions if self._height(r) <= want]
+        return max(under, key=self._height) if under else min(
+            self.resolutions, key=self._height)
 
     def capability_chips(self) -> list[str]:
         chips = [
@@ -161,6 +194,8 @@ class VideoModelCaps:
         ]
         if not self.supports_negative_prompt:
             chips.append("no negative prompt")
+        if not self.resolution_selectable:
+            chips.append("fixed resolution")
         if self.audio is AudioBehavior.ALWAYS_ON:
             chips.append("audio forced on")
         if self.retention_hours:
@@ -194,40 +229,55 @@ def index_by_key(entries: Iterable[VideoModelCaps]) -> dict[str, VideoModelCaps]
 _FAL_DOCS = "https://fal.ai/docs/model-endpoints/queue"
 _VEO_DOCS = "https://ai.google.dev/gemini-api/docs/veo"
 _VERIFIED_ON = date(2026, 8, 25)
+#: Entries whose model id, input schema and price were read directly from the
+#: provider's OpenAPI document and model page over raw HTTP on this date.
+_SCHEMA_VERIFIED = date(2026, 8, 26)
+_KLING_PAGE = "https://fal.ai/models/fal-ai/kling-video/v2.5-turbo/pro/image-to-video"
+_HAILUO_PRO_PAGE = "https://fal.ai/models/fal-ai/minimax/hailuo-02/pro/image-to-video"
+_HAILUO_STD_PAGE = "https://fal.ai/models/fal-ai/minimax/hailuo-02/standard/image-to-video"
 
 CATALOG: dict[str, VideoModelCaps] = index_by_key([
     # ---------------- economy workhorse -------------------------------------
     VideoModelCaps(
         model_key="kling-2.5-turbo-i2v",
         provider="fal",
-        model_id="fal-ai/kling-video/v2.5-turbo/image-to-video",
-        display_name="Kling 2.5 Turbo",
+        model_id="fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+        display_name="Kling 2.5 Turbo Pro",
         tier=ModelTier.ECONOMY,
         adapter="fal",
         status=ModelStatus.ACTIVE,
         image_to_video=True,
         durations=DurationSupport("discrete", values=(5.0, 10.0)),
-        resolutions=("720p", "1080p"),
+        resolutions=("1080p",),
         aspect_ratios=("16:9", "9:16", "1:1"),
+        resolution_selectable=False,
+        aspect_selectable=False,
         max_reference_images=0,
         supports_negative_prompt=True,
-        supports_seed=True,
+        supports_seed=False,
         audio=AudioBehavior.NONE,
+        request_fields=frozenset({"prompt", "image_url", "duration",
+                                  "negative_prompt", "cfg_scale"}),
+        extra_params={"cfg_scale": 0.5},
         pricing=Pricing(
             kind="per_second",
-            usd={"720p": 0.07, "1080p": 0.07},
-            source="aggregated third-party pricing surveys",
-            verified_at=_VERIFIED_ON,
-            confidence=PriceConfidence.ESTIMATED,
-            notes="Sources disagree between $0.029 and $0.10/s. Confirm on the "
-                  "fal model page before a large paid run.",
+            usd={"1080p": 0.07},
+            source=_KLING_PAGE,
+            verified_at=_SCHEMA_VERIFIED,
+            confidence=PriceConfidence.VERIFIED,
+            notes="Model page: $0.35 for 5s, +$0.07 per additional second. "
+                  "Base is exactly 5 x $0.07, so flat per-second is "
+                  "algebraically identical for every legal duration.",
         ),
         typical_latency_s=120,
         max_wait_s=1200,
         retention_hours=None,
-        docs_url=_FAL_DOCS,
-        notes="Expected MVP workhorse: strong motion per dollar. No reference "
-              "images -- consistency rests on the approved first frame.",
+        docs_url=_KLING_PAGE,
+        notes="Expected MVP workhorse. Schema verified: no seed, no resolution "
+              "and no aspect_ratio inputs -- output follows the input image, so "
+              "the approved first frame is the ONLY consistency anchor. "
+              "Output resolution is unverified; the first run's ffprobe settles "
+              "it. cfg_scale (0-1) is the prompt-adherence lever.",
     ),
     # ---------------- mid tier ----------------------------------------------
     VideoModelCaps(
@@ -239,26 +289,74 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
         adapter="fal",
         status=ModelStatus.ACTIVE,
         image_to_video=True,
-        durations=DurationSupport("discrete", values=(6.0, 10.0)),
+        durations=DurationSupport("discrete", values=(6.0,)),
         resolutions=("1080p",),
         aspect_ratios=("16:9", "9:16"),
+        resolution_selectable=False,
+        aspect_selectable=False,
         max_reference_images=0,
         supports_negative_prompt=False,
         supports_seed=False,
         audio=AudioBehavior.NONE,
+        request_fields=frozenset({"prompt", "image_url", "prompt_optimizer"}),
+        # Provider-side prompt rewriting defaults to ON and would silently
+        # replace the prompt we composed, breaking both determinism and the
+        # reproducibility of input_hash. Always off.
+        extra_params={"prompt_optimizer": False},
         pricing=Pricing(
-            kind="per_clip",
-            usd={"1080p": 0.49},
-            source="aggregated third-party pricing surveys",
-            verified_at=_VERIFIED_ON,
-            confidence=PriceConfidence.ESTIMATED,
-            notes="Flat per-clip price -- exercises the non-per-second pricing "
-                  "path and is the cheapest way to buy a 10s shot.",
+            kind="per_second",
+            usd={"1080p": 0.08},
+            source=_HAILUO_PRO_PAGE,
+            verified_at=_SCHEMA_VERIFIED,
+            confidence=PriceConfidence.VERIFIED,
+            notes="Model page: $0.08/sec; a 6s video costs $0.48.",
         ),
         typical_latency_s=180,
         max_wait_s=1500,
         retention_hours=None,
-        docs_url=_FAL_DOCS,
+        docs_url=_HAILUO_PRO_PAGE,
+        notes="Schema verified: NO duration, resolution, seed or negative "
+              "prompt inputs. Fixed 6s at 1080p -- the earlier 10s option was "
+              "fiction and would have desynced the timeline.",
+    ),
+    # ---------------- economy alternative: same family, half the price ------
+    VideoModelCaps(
+        model_key="hailuo-02-standard-i2v",
+        provider="fal",
+        model_id="fal-ai/minimax/hailuo-02/standard/image-to-video",
+        display_name="Hailuo 02 Standard",
+        tier=ModelTier.ECONOMY,
+        adapter="fal",
+        status=ModelStatus.ACTIVE,
+        image_to_video=True,
+        durations=DurationSupport("discrete", values=(6.0, 10.0)),
+        resolutions=("768P", "512P"),          # provider's literal tokens
+        aspect_ratios=("16:9", "9:16"),
+        resolution_selectable=True,
+        aspect_selectable=False,
+        max_reference_images=0,
+        supports_negative_prompt=False,
+        supports_seed=False,
+        audio=AudioBehavior.NONE,
+        request_fields=frozenset({"prompt", "image_url", "duration",
+                                  "resolution", "prompt_optimizer"}),
+        extra_params={"prompt_optimizer": False},
+        pricing=Pricing(
+            kind="per_second",
+            usd={"768P": 0.045, "512P": 0.017},
+            source=_HAILUO_STD_PAGE,
+            verified_at=_SCHEMA_VERIFIED,
+            confidence=PriceConfidence.VERIFIED,
+            notes="Model page: 768P $0.045/sec (6s = $0.27), 512P $0.017/sec.",
+        ),
+        typical_latency_s=150,
+        max_wait_s=1500,
+        retention_hours=None,
+        docs_url=_HAILUO_STD_PAGE,
+        notes="Cheapest verified entry and MORE configurable than Pro: real "
+              "duration (6/10s) and resolution (768P/512P) inputs. 768P is "
+              "below 1080p delivery, so judge upscaled quality in the "
+              "contact sheet before adopting it.",
     ),
     # ---------------- premium benchmark -------------------------------------
     VideoModelCaps(

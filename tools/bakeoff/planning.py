@@ -232,7 +232,12 @@ def plan_motion(
     if caps.tier is ModelTier.PREMIUM and not allow_premium:
         blocking.append(Note("premium_not_enabled",
                              f"{caps.display_name} is premium; premium spend is off."))
-    if aspect_ratio not in caps.aspect_ratios:
+    if not caps.aspect_selectable:
+        warnings.append(Note(
+            "aspect_follows_source",
+            f"{caps.display_name} has no aspect-ratio input; the output follows "
+            f"the first frame. Make sure the approved still is {aspect_ratio}."))
+    elif aspect_ratio not in caps.aspect_ratios:
         blocking.append(Note(
             "aspect_unsupported",
             f"{caps.display_name} supports {'/'.join(caps.aspect_ratios)}, "
@@ -249,11 +254,19 @@ def plan_motion(
             f"({direction})."))
 
     resolved_r = caps.best_resolution(preferred_resolution)
-    if resolved_r != preferred_resolution:
+    if not caps.resolution_selectable:
+        if resolved_r.lower() != preferred_resolution.lower():
+            warnings.append(Note(
+                "resolution_fixed",
+                f"{caps.display_name} has no resolution input; it outputs "
+                f"{resolved_r} regardless of the requested {preferred_resolution}. "
+                f"The measured clip is the authority."))
+    elif resolved_r.lower() != preferred_resolution.lower():
         warnings.append(Note(
             "resolution_adjusted",
             f"{caps.display_name} does not offer {preferred_resolution}; "
-            f"using {resolved_r}."))
+            f"using {resolved_r}. Delivery is {preferred_resolution}, so this "
+            f"will be upscaled at render time."))
 
     refs = list(reference_sha256)[:caps.max_reference_images]
     if len(reference_sha256) > caps.max_reference_images:

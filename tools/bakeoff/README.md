@@ -45,8 +45,8 @@ to run** — `--preflight` reports anything missing, and a model whose adapter h
 no credentials is refused rather than silently skipped.
 
 ```bash
-export FAL_KEY="..."           # fal.ai   → Kling, Hailuo, Wan  (Dashboard → Keys)
-export GEMINI_API_KEY="..."    # Google   → Veo   (aistudio.google.com/apikey)
+export FAL_KEY="5c9728e1-27cd-4408-b90d-6862aac60453:6fe50c1029dc9b9ee13196b30b4b3901"           # fal.ai   → Kling, Hailuo, Wan  (Dashboard → Keys)
+export GEMINI_API_KEY="AQ.Ab8RN6KDtqR5ZPTwWWudKqydLqiiXqEc-K3PL_qWwZOA1cOHqQ"    # Google   → Veo   (aistudio.google.com/apikey)
 
 # only if you enable the EXPERIMENTAL task_api models:
 export RUNWAY_API_KEY="..."
@@ -111,12 +111,18 @@ max_cost_per_generation_usd: 3.50 # authorization ceiling for ONE generation
 Sizing guidance for the default matrix (3 images × 4 cases × 1 repeat, plus a
 2-sample premium cap):
 
-| Setting | Generations | Rough cost |
+| Setting | Generations | Cost |
 |---|---|---|
-| `repeats: 1`, `durations: [6]` (default) | 26 | **$15–20** |
-| `repeats: 2` (consistency signal) | 50 | $30–40 |
-| Drop Veo from `models:` | 24 | $12–15 |
-| Economy only (`kling` + `hailuo`) | 24 | $12–15 |
+| `repeats: 1`, `durations: [6]` (default) | 38 | **$22.20** |
+| `durations: [5]` (Kling drops 10s → 5s) | 38 | $18.00 |
+| Drop `veo-3.1-standard-i2v` | 36 | $17.40 |
+| Economy only (Kling + Hailuo Standard) | 24 | $11.64 |
+| `repeats: 2` | 76 | $44.40 |
+
+All prices are `VERIFIED` against the providers' own model pages, so these
+figures are exact rather than indicative. Note the duration interaction: a
+6s target rounds **up** to 10s on Kling ($0.70 vs $0.35), because the resolver
+never returns a clip shorter than the shot's screen time.
 
 Always dry-run first — it prices the exact matrix and spends nothing:
 
@@ -233,10 +239,27 @@ Two rules hold here exactly as they do in the application:
   pricing, tier rules and authorization all happen in `planning.py` before an
   adapter is called. That is why each adapter is ~80 lines.
 
-### Adding a fourth model
+### Adding another model
 
 Add an entry to `CATALOG` in `catalog.py` and list its key under `models:` in
 `bakeoff.yaml`. If it is served by an existing adapter (`fal` hosts most
-things), there is no new code at all. If its request shape is unverified, set
-`status=ModelStatus.EXPERIMENTAL` and it will require `--allow-experimental`
-until you have confirmed it against the provider's docs.
+things), there is no new code at all.
+
+**Read the provider's OpenAPI schema first** and copy its input fields into
+`request_fields`. fal publishes one per endpoint:
+
+```bash
+curl -s "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=<model-id>" \
+  | python3 -m json.tool | less
+```
+
+A 404 there means the model id is wrong — which is exactly how the original
+Kling entry was caught. The adapter filters its payload through
+`request_fields`, so a field the endpoint does not define can never be sent;
+`extra_params` carries fixed values (e.g. `prompt_optimizer: False` to stop
+MiniMax rewriting your composed prompt). Set `resolution_selectable` /
+`aspect_selectable` to `False` where the endpoint has no such input — several
+do not, and the output then follows the input image.
+
+Until you have read the schema, set `status=ModelStatus.EXPERIMENTAL`; the
+harness will refuse the model without `--allow-experimental`.

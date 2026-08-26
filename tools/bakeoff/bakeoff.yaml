@@ -10,8 +10,9 @@ inputs_dir: inputs
 # Models under test. Comment lines back in to widen the matrix.
 # ---------------------------------------------------------------------------
 models:
-  - kling-2.5-turbo-i2v        # ECONOMY  workhorse candidate (fal)
-  - hailuo-02-pro-i2v          # STANDARD mid-tier, flat per-clip price (fal)
+  - kling-2.5-turbo-i2v        # ECONOMY  workhorse candidate   $0.07/s
+  - hailuo-02-standard-i2v     # ECONOMY  768P, 6s or 10s       $0.045/s
+  - hailuo-02-pro-i2v          # STANDARD 1080p, fixed 6s       $0.08/s
   - veo-3.1-standard-i2v       # PREMIUM  benchmark (Gemini, direct)
 
   # Ready to enable once you want them:
@@ -29,7 +30,14 @@ sample_limits:
 # Experiment shape
 # ---------------------------------------------------------------------------
 cases: [static-subtle, push-in, pan, action]
-durations: [6]            # authorial intent; each model resolves to its own grid
+# Authorial intent in seconds. Each model resolves this to its own grid, so the
+# same number costs different amounts per model:
+#   6s -> Kling rounds UP to 10s   ($0.70)  <- resolver never returns a short clip
+#      -> Hailuo Standard  6s      ($0.27)
+#      -> Hailuo Pro       6s      ($0.48, fixed)
+#      -> Veo              6s      ($2.40)
+# Setting this to 5 halves Kling ($0.35) but Hailuo's floor is still 6s.
+durations: [6]
 repeats: 1                # 2 gives a consistency signal at double the cost
 resolution: 1080p
 aspect_ratio: "16:9"

@@ -22,6 +22,7 @@ from adapters.base import (
     ErrorKind, FetchResult, OperationState, ProviderError, Submission,
     VideoRequest,
 )
+from catalog import get as get_caps
 from probe import sha256_file
 from records import utcnow
 
@@ -66,7 +67,11 @@ class FalVideoAdapter:
         return adapter_name == "fal"
 
     async def submit(self, req: VideoRequest) -> Submission:
-        payload: dict = {
+        caps = get_caps(req.model_key)
+        # Build every field we *could* send, then keep only the ones this
+        # endpoint actually defines. Sending an undeclared field is impossible
+        # by construction, and adding a model never touches this code.
+        candidate: dict = {
             "image_url": _data_uri(req.first_frame_path),
             "prompt": req.prompt,
             "duration": str(int(req.duration_s)),
@@ -74,9 +79,11 @@ class FalVideoAdapter:
             "aspect_ratio": req.aspect_ratio,
         }
         if req.negative_prompt:
-            payload["negative_prompt"] = req.negative_prompt
+            candidate["negative_prompt"] = req.negative_prompt
         if req.seed is not None:
-            payload["seed"] = req.seed
+            candidate["seed"] = req.seed
+        payload = {k: v for k, v in candidate.items() if k in caps.request_fields}
+        payload.update(caps.extra_params)
 
         r = await self._client.post(f"{QUEUE_BASE}/{req.model_id}", json=payload)
         if r.status_code >= 400:

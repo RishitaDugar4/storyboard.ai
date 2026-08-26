@@ -32,12 +32,15 @@ sample_limits:
 cases: [static-subtle, push-in, pan, action]
 # Authorial intent in seconds. Each model resolves this to its own grid, so the
 # same number costs different amounts per model:
-#   6s -> Kling rounds UP to 10s   ($0.70)  <- resolver never returns a short clip
-#      -> Hailuo Standard  6s      ($0.27)
-#      -> Hailuo Pro       6s      ($0.48, fixed)
-#      -> Veo              6s      ($2.40)
-# Setting this to 5 halves Kling ($0.35) but Hailuo's floor is still 6s.
-durations: [6]
+#   5s -> Kling            5s     ($0.35)
+#      -> Hailuo Standard  6s     ($0.27)  <- rounds UP; 6s is its floor
+#      -> Hailuo Pro       6s     ($0.48, fixed)
+#      -> Veo              6s     ($2.40)  <- grid is 4/6/8
+# Raising this back to 6 pushes Kling onto a 10s clip ($0.70) and changes
+# nothing else, since every other model's floor is already 6s.
+# Side effect: at 5s Kling's narration budget drops to 10 words (22 at 10s),
+# so the longer test cases overflow there too. That is the fit check working.
+durations: [5]
 repeats: 1                # 2 gives a consistency signal at double the cost
 resolution: 1080p
 aspect_ratio: "16:9"

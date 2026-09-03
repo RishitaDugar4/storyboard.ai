@@ -1,0 +1,86 @@
+# Production overlay. Use together with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Differences from local: Caddy terminates TLS and is the only published port,
+# the web app is containerised, workers are on, and nothing else is reachable
+# from outside the compose network.
+
+services:
+  db:
+    ports: []                      # never expose Postgres to the internet
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups         # pg_dump target, see deploy/backup.sh
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=512MB
+
+  redis:
+    ports: []
+
+  api:
+    ports: []                      # reached through Caddy only
+    environment:
+      ENV: prod
+      SESSION_COOKIE_SECURE: "true"
+      CORS_ORIGINS: '["https://${SITE_ADDRESS}"]'
+    # Migrations run once at start, before the server accepts traffic. Cheap,
+    # idempotent, and it removes "did I remember to migrate" from the deploy.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      # Same-network hostname; Caddy handles /api itself, so this is only a
+      # fallback for any request that reaches Next's rewrite.
+      API_ORIGIN: http://api:8000
+    depends_on:
+      api: {condition: service_started}
+    restart: unless-stopped
+
+  worker-ai:
+    profiles: []                   # enabled in prod
+  worker-motion:
+    profiles: []
+  worker-render:
+    profiles: []
+    # FFmpeg is CPU-bound and will happily consume the box. Leaving headroom
+    # keeps the API responsive while a render is running.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3g
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"              # HTTP/3
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data             # certificates: losing this re-issues them
+      - caddyconfig:/config
+      - caddylogs:/var/log/caddy
+    depends_on:
+      api: {condition: service_started}
+      web: {condition: service_started}
+    restart: unless-stopped
+
+volumes:
+  caddydata:
+  caddyconfig:
+  caddylogs:

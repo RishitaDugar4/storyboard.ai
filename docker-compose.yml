@@ -1,0 +1,92 @@
+# Local stack. The same images run on the VPS; only the env file changes.
+#
+#   docker compose up -d db redis      # dependencies only (app runs on host)
+#   docker compose up -d               # everything
+#   docker compose run --rm api alembic upgrade head
+
+name: hbday-zee
+
+x-api-env: &api-env
+  ENV: ${ENV:-local}
+  DATABASE_URL: postgresql+asyncpg://hbz:${POSTGRES_PASSWORD:-hbz}@db:5432/hbday_zee
+  REDIS_URL: redis://redis:6379/0
+  APP_PASSPHRASE: ${APP_PASSPHRASE:?set APP_PASSPHRASE in .env}
+  SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+  STORAGE_DIR: /srv/storage
+  FAL_KEY: ${FAL_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+x-api-build: &api-build
+  build:
+    context: ./apps/api
+    dockerfile: Dockerfile
+  depends_on:
+    db: {condition: service_healthy}
+    redis: {condition: service_healthy}
+  volumes:
+    - storage:/srv/storage
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hbz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hbz}
+      POSTGRES_DB: hbday_zee
+    ports: ["5433:5432"]        # 5433: never collide with a host postgres
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hbz -d hbday_zee"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    <<: *api-build
+    environment: *api-env
+    ports: ["8000:8000"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  # Workers arrive with M3 (arq). Declared now so the topology is visible and
+  # the deploy target does not change shape later.
+  worker-ai:
+    <<: *api-build
+    environment: *api-env
+    command: ["python", "-m", "app.jobs.worker", "--queue", "ai"]
+    profiles: ["workers"]
+
+  worker-motion:
+    <<: *api-build
+    environment: *api-env
+    command: ["python", "-m", "app.jobs.worker", "--queue", "motion"]
+    profiles: ["workers"]
+
+  worker-render:
+    <<: *api-build
+    environment: *api-env
+    # CPU-bound FFmpeg: concurrency 1, and it must not compete with the AI
+    # workers for the event loop (ARCHITECTURE D9).
+    command: ["python", "-m", "app.jobs.worker", "--queue", "render",
+              "--concurrency", "1"]
+    profiles: ["workers"]
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:

@@ -1,0 +1,48 @@
+# Caddy terminates TLS and is the only thing exposed to the internet.
+# Certificates are obtained and renewed automatically from Let's Encrypt.
+#
+# Path routing rather than chaining through Next: the browser sees ONE origin,
+# so the session cookie stays first-party, while API and media responses skip
+# the Node hop entirely. (Next's own /api rewrite is a local-dev convenience
+# and is never reached here.)
+
+{
+	email {$ACME_EMAIL}
+	# Uncomment to rehearse against the staging CA without burning rate limits:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# Private project: keep it out of search results entirely.
+	header {
+		X-Robots-Tag "noindex, nofollow"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	@api path /api/* /healthz /readyz /docs /openapi.json
+	handle @api {
+		reverse_proxy api:8000 {
+			# Renders and downloads are large and slow; do not cut them off.
+			flush_interval -1
+			transport http {
+				read_timeout 30m
+				write_timeout 30m
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}

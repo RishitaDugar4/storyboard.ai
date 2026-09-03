@@ -1,0 +1,223 @@
+{
+  "schema_version": "3.0",
+  "profile": "preview",
+  "title": "The Lighthouse Keeper",
+  "width": 1280,
+  "height": 720,
+  "fps": 24,
+  "audio": {
+    "sample_rate": 48000,
+    "music_path": "/Users/rishitadugar/personalprojects/hbday-zee/apps/api/tests/fixtures/demo/audio/music-bed.wav",
+    "music_db": -24.0,
+    "music_fade_in_s": 2.0,
+    "music_fade_out_s": 3.0,
+    "keep_source_audio": false,
+    "source_audio_db": -20.0,
+    "loudness_target_lufs": -16.0
+  },
+  "title_card": {
+    "text": "The Lighthouse Keeper",
+    "subtitle": "a demo render",
+    "duration_ms": 2500
+  },
+  "end_card": {
+    "text": "Happy Birthday",
+    "subtitle": "",
+    "duration_ms": 3000
+  },
+  "clips": [
+    {
+      "shot_id": "s1",
+      "scene_index": 0,
+      "shot_index": 0,
+      "source": {
+        "kind": "still",
+        "path": "/Users/rishitadugar/personalprojects/hbday-zee/tools/bakeoff/inputs/01-character-closeup.png",
+        "native_duration_ms": null,
+        "has_audio": false,
+        "provider": null,
+        "model_key": null
+      },
+      "kenburns": {
+        "move": "push_in",
+        "start_scale": 1.0,
+        "end_scale": 1.12
+      },
+      "start_ms": 2500,
+      "duration_ms": 6000,
+      "tail_freeze_ms": 0,
+      "audio": [
+        {
+          "line_id": "s1-n1",
+          "path": "/Users/rishitadugar/personalprojects/hbday-zee/apps/api/tests/fixtures/demo/audio/s1.wav",
+          "offset_ms": 300,
+          "duration_ms": 3600,
+          "text": "It was the last winter the light would burn.",
+          "speaker": "narrator"
+        }
+      ],
+      "label": "It was the last winter the light would burn."
+    },
+    {
+      "shot_id": "s2",
+      "scene_index": 1,
+      "shot_index": 0,
+      "source": {
+        "kind": "still",
+        "path": "/Users/rishitadugar/personalprojects/hbday-zee/tools/bakeoff/inputs/03-establishing-wide.png",
+        "native_duration_ms": null,
+        "has_audio": false,
+        "provider": null,
+        "model_key": null
+      },
+      "kenburns": {
+        "move": "pan_right",
+        "start_scale": 1.0,
+        "end_scale": 1.12
+      },
+      "start_ms": 8500,
+      "duration_ms": 6000,
+      "tail_freeze_ms": 0,
+      "audio": [
+        {
+          "line_id": "s2-n1",
+          "path": "/Users/rishitadugar/personalprojects/hbday-zee/apps/api/tests/fixtures/demo/audio/s2.wav",
+          "offset_ms": 300,
+          "duration_ms": 2800,
+          "text": "Beyond the window, the sea went on.",
+          "speaker": "narrator"
+        }
+      ],
+      "label": "Beyond the window, the sea went on."
+    },
+    {
+      "shot_id": "s3",
+      "scene_index": 2,
+      "shot_index": 0,
+      "source": {
+        "kind": "still",
+        "path": "/Users/rishitadugar/personalprojects/hbday-zee/tools/bakeoff/inputs/02-two-characters-medium.png",
+        "native_duration_ms": null,
+        "has_audio": false,
+        "provider": null,
+        "model_key": null
+      },
+      "kenburns": {
+        "move": "static",
+        "start_scale": 1.0,
+        "end_scale": 1.12
+      },
+      "start_ms": 14500,
+      "duration_ms": 5000,
+      "tail_freeze_ms": 0,
+      "audio": [
+        {
+          "line_id": "s3-n1",
+          "path": "/Users/rishitadugar/personalprojects/hbday-zee/apps/api/tests/fixtures/demo/audio/s3.wav",
+          "offset_ms": 300,
+          "duration_ms": 3200,
+          "text": "She had kept it lit for forty years.",
+          "speaker": "narrator"
+        }
+      ],
+      "label": "She had kept it lit for forty years."
+    },
+    {
+      "shot_id": "s4",
+      "scene_index": 3,
+      "shot_index": 0,
+      "source": {
+        "kind": "still",
+        "path": "/Users/rishitadugar/personalprojects/hbday-zee/tools/bakeoff/inputs/03-establishing-wide.png",
+        "native_duration_ms": null,
+        "has_audio": false,
+        "provider": null,
+        "model_key": null
+      },
+      "kenburns": {
+        "move": "pull_out",
+        "start_scale": 1.0,
+        "end_scale": 1.12
+      },
+      "start_ms": 19500,
+      "duration_ms": 6000,
+      "tail_freeze_ms": 0,
+      "audio": [
+        {
+          "line_id": "s4-n1",
+          "path": "/Users/rishitadugar/personalprojects/hbday-zee/apps/api/tests/fixtures/demo/audio/s4.wav",
+          "offset_ms": 300,
+          "duration_ms": 2800,
+          "text": "No one had ever asked her to.",
+          "speaker": "narrator"
+        }
+      ],
+      "label": "No one had ever asked her to."
+    },
+    {
+      "shot_id": "s5",
+      "scene_index": 4,
+      "shot_index": 0,
+      "source": {
+        "kind": "still",
+        "path": "/Users/rishitadugar/personalprojects/hbday-zee/tools/bakeoff/inputs/01-character-closeup.png",
+        "native_duration_ms": null,
+        "has_audio": false,
+        "provider": null,
+        "model_key": null
+      },
+      "kenburns": {
+        "move": "tilt_up",
+        "start_scale": 1.0,
+        "end_scale": 1.12
+      },
+      "start_ms": 25500,
+      "duration_ms": 5000,
+      "tail_freeze_ms": 0,
+      "audio": [
+        {
+          "line_id": "s5-n1",
+          "path": "/Users/rishitadugar/personalprojects/hbday-zee/apps/api/tests/fixtures/demo/audio/s5.wav",
+          "offset_ms": 300,
+          "duration_ms": 2400,
+          "text": "Then, one evening, she heard it.",
+          "speaker": "narrator"
+        }
+      ],
+      "label": "Then, one evening, she heard it."
+    },
+    {
+      "shot_id": "s6",
+      "scene_index": 5,
+      "shot_index": 0,
+      "source": {
+        "kind": "still",
+        "path": "/Users/rishitadugar/personalprojects/hbday-zee/tools/bakeoff/inputs/02-two-characters-medium.png",
+        "native_duration_ms": null,
+        "has_audio": false,
+        "provider": null,
+        "model_key": null
+      },
+      "kenburns": {
+        "move": "push_in",
+        "start_scale": 1.0,
+        "end_scale": 1.12
+      },
+      "start_ms": 30500,
+      "duration_ms": 6000,
+      "tail_freeze_ms": 0,
+      "audio": [
+        {
+          "line_id": "s6-n1",
+          "path": "/Users/rishitadugar/personalprojects/hbday-zee/apps/api/tests/fixtures/demo/audio/s6.wav",
+          "offset_ms": 300,
+          "duration_ms": 3600,
+          "text": "A knock, from the far side of the storm.",
+          "speaker": "narrator"
+        }
+      ],
+      "label": "A knock, from the far side of the storm."
+    }
+  ],
+  "subtitles": true
+}

@@ -1,0 +1,10 @@
+.venv/
+out/
+.render-cache/
+.render-*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# Generated demo media: rebuild with `make demo-fixtures`
+tests/fixtures/demo/audio/
+alembic/versions/__pycache__/

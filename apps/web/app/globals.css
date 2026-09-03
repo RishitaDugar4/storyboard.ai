@@ -1,0 +1,40 @@
+:root {
+  --bg: #fbfaf8; --fg: #16151a; --muted: #6b6875;
+  --line: #e6e3dd; --card: #ffffff; --accent: #7a5c3e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121114; --fg: #ecebe8; --muted: #9a96a2;
+    --line: #2a2830; --card: #1a181d; --accent: #d3b08c;
+  }
+}
+* { box-sizing: border-box; }
+html, body { padding: 0; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 780px; margin: 0 auto; padding: 48px 24px 96px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+p.sub { color: var(--muted); margin: 0 0 32px; }
+input, button {
+  font: inherit; border-radius: 8px; border: 1px solid var(--line);
+  padding: 10px 14px; background: var(--card); color: var(--fg);
+}
+button { cursor: pointer; border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.row { display: flex; gap: 10px; }
+.row > input { flex: 1; }
+ul.projects { list-style: none; padding: 0; margin: 24px 0 0; }
+ul.projects li {
+  border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+  margin-bottom: 10px; background: var(--card);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.stage {
+  font-size: 12px; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 999px; padding: 2px 10px; white-space: nowrap;
+}
+.err { color: #b3261e; margin-top: 12px; }
+.empty { color: var(--muted); border: 1px dashed var(--line);
+         border-radius: 10px; padding: 28px; text-align: center; }

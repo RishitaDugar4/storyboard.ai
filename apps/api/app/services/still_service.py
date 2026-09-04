@@ -97,6 +97,40 @@ async def cached_asset(session: AsyncSession, project_id: uuid.UUID,
         .order_by(Asset.created_at.desc()).limit(1))).scalar_one_or_none()
 
 
+async def recompute_image_hash(session: AsyncSession, shot: Shot,
+                               project: Project, *, port=None) -> str:
+    """Refresh the shot's record of what its prompt currently hashes to.
+
+    `image_input_hash` means "the prompt this shot would produce now", while an
+    asset's `input_hash` means "the prompt that produced me". Freshness is the
+    comparison between them -- so this must run after any edit that changes the
+    prompt, or a stale still keeps reporting itself as current.
+    """
+    if port is None:
+        from ..ai.registry import get_image_port
+        port = get_image_port()
+    plan = await plan_still(
+        session, shot, project,
+        provider=getattr(port, "provider", "fake"),
+        model=getattr(port, "model", "unknown"),
+        cost_per_image_cents=getattr(port, "cost_per_image_cents", None))
+    shot.image_input_hash = plan.input_hash
+    return plan.input_hash
+
+
+async def recompute_hashes_for_character(session: AsyncSession,
+                                         project: Project,
+                                         slug: str) -> int:
+    """A character's canon is embedded in every prompt they appear in, so
+    editing it invalidates those stills and no others."""
+    shots = (await session.execute(
+        select(Shot).where(Shot.project_id == project.id,
+                           Shot.subject_slugs.contains([slug])))).scalars().all()
+    for shot in shots:
+        await recompute_image_hash(session, shot, project)
+    return len(shots)
+
+
 def still_is_fresh(shot: Shot, asset: Asset | None) -> bool:
     """Freshness is derived, never stored.
 

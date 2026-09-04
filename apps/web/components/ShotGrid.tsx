@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ApiError, type ShotRow, type StillAsset, stillsApi,
+  ApiError, type ShotEdit, type ShotRow, type StillAsset, stillsApi,
 } from "@/lib/api";
 import { PromptInspector } from "./PromptInspector";
 
@@ -15,6 +15,8 @@ export function ShotGrid({ projectId, revision, onJob }: {
   const [candidates, setCandidates] = useState<Record<string, StillAsset[]>>({});
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [form, setForm] = useState<ShotEdit>({});
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadFor = useRef<string | null>(null);
@@ -86,7 +88,69 @@ export function ShotGrid({ projectId, revision, onJob }: {
                 <span className="chip">{s.target_duration_s}s</span>
                 {s.motion_priority === "high" && <span className="chip hot">motion</span>}
               </div>
-              <p className="action">{s.action}</p>
+              {editing === s.id ? (
+                <div className="editshot">
+                  <textarea
+                    rows={3}
+                    value={form.action ?? s.action}
+                    onChange={(e) => setForm((f) => ({ ...f, action: e.target.value }))}
+                  />
+                  <div className="row" style={{ gap: 10, marginTop: 8 }}>
+                    <label className="field">
+                      <span className="muted small">camera</span>
+                      <select
+                        value={form.camera_move ?? s.camera_move}
+                        onChange={(e) => setForm((f) => ({ ...f, camera_move: e.target.value }))}
+                      >
+                        {["static", "push_in", "pull_out", "pan_left", "pan_right",
+                          "tilt_up", "tilt_down", "orbit", "handheld"].map((m) => (
+                          <option key={m} value={m}>{m.replace(/_/g, " ")}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span className="muted small">seconds</span>
+                      <input type="number" min={2.5} max={12} step={0.5}
+                             value={form.target_duration_s ?? s.target_duration_s}
+                             onChange={(e) => setForm((f) => ({
+                               ...f, target_duration_s: Number(e.target.value) }))} />
+                    </label>
+                    <label className="field">
+                      <span className="muted small">motion</span>
+                      <select
+                        value={form.motion_priority ?? s.motion_priority}
+                        onChange={(e) => setForm((f) => ({
+                          ...f,
+                          motion_priority: e.target.value as "low" | "medium" | "high",
+                        }))}
+                      >
+                        {["low", "medium", "high"].map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="row" style={{ marginTop: 8 }}>
+                    <button disabled={busy !== null}
+                            onClick={() => run(`edit-${s.id}`, async () => {
+                              await stillsApi.patchShot(s.id, form);
+                              setEditing(null); setForm({});
+                            })}>
+                      Save shot
+                    </button>
+                    <button className="chip"
+                            onClick={() => { setEditing(null); setForm({}); }}>
+                      cancel
+                    </button>
+                  </div>
+                  <p className="muted small">
+                    Changing the action changes the prompt, so the current still
+                    becomes stale.
+                  </p>
+                </div>
+              ) : (
+                <p className="action">{s.action}</p>
+              )}
 
               <div className="row">
                 <button
@@ -110,6 +174,13 @@ export function ShotGrid({ projectId, revision, onJob }: {
                   fileInput.current?.click();
                 }}>
                   upload
+                </button>
+                <button className="chip"
+                        onClick={() => {
+                          setEditing(editing === s.id ? null : s.id);
+                          setForm({});
+                        }}>
+                  edit
                 </button>
               </div>
 

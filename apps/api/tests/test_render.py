@@ -163,6 +163,7 @@ def test_demo_timelines_pass_preflight():
 @needs_ffmpeg
 @pytest.mark.skipif(not (FIXTURES / "demo-preview.json").exists(),
                     reason="run `make demo-fixtures` first")
+@pytest.mark.timeout(600)
 def test_preview_renders_within_tolerance(tmp_path):
     from app.render import render
     tl = Timeline.load(FIXTURES / "demo-preview.json")

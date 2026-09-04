@@ -12,6 +12,7 @@ export interface Project {
   image_size: string;
   style_preset: string;
   allow_premium: boolean;
+  narrator_voice_id: string | null;
   budget_cents: number;
   spent_cents: number;
   share_token: string | null;
@@ -55,9 +56,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  login: (passphrase: string) =>
+  login: (email: string, passphrase: string) =>
     request<void>("/api/v1/auth/session", {
-      method: "POST", body: JSON.stringify({ passphrase }),
+      method: "POST", body: JSON.stringify({ email, passphrase }),
     }),
   logout: () => request<void>("/api/v1/auth/session", { method: "DELETE" }),
   me: () => request<{ id: string; email: string; display_name: string }>("/api/v1/me"),
@@ -68,6 +69,14 @@ export const api = {
     request<Project>("/api/v1/projects", {
       method: "POST", body: JSON.stringify({ title }),
     }),
+  updateProject: (id: string, changes: Partial<Pick<Project,
+      "title" | "style_preset" | "budget_cents" | "allow_premium">> &
+      { narrator_voice_id?: string }) =>
+    request<Project>(`/api/v1/projects/${id}`, {
+      method: "PATCH", body: JSON.stringify(changes),
+    }),
+  deleteProject: (id: string) =>
+    request<void>(`/api/v1/projects/${id}`, { method: "DELETE" }),
 };
 
 // ---------------------------------------------------------------------------
@@ -268,6 +277,16 @@ export interface PromptInspection {
   would_reuse_cache: boolean;
 }
 
+export interface ShotEdit {
+  action?: string;
+  composition_note?: string;
+  camera_move?: string;
+  subject_motion?: string;
+  target_duration_s?: number;
+  motion_priority?: "low" | "medium" | "high";
+  subject_slugs?: string[];
+}
+
 export const charactersApi = {
   list: (pid: string) =>
     request<{ items: Character[]; total: number }>(`${p(pid)}/characters`),
@@ -285,6 +304,10 @@ export const charactersApi = {
 };
 
 export const stillsApi = {
+  patchShot: (shotId: string, changes: ShotEdit) =>
+    request<ShotRow & { still_fresh: boolean }>(`/api/v1/shots/${shotId}`, {
+      method: "PATCH", body: JSON.stringify(changes),
+    }),
   shots: (pid: string) =>
     request<{ items: ShotRow[]; total: number }>(`${p(pid)}/shots`),
   prompt: (shotId: string) =>

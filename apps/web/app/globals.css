@@ -151,3 +151,12 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
 .chip.warn { color: #a8752c; border-color: #a8752c; }
 .chip.bad { color: #b3261e; border-color: #b3261e; }
 .bad-border { border-color: #b3261e; }
+
+/* ---- inline editing ----------------------------------------------------- */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field input, .field select { padding: 7px 10px; font-size: 13px; }
+.editcanon, .editshot { margin: 10px 0; padding: 12px; border-radius: 10px;
+                        background: var(--bg); border: 1px solid var(--line);
+                        display: grid; gap: 8px; }
+.editcanon { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.editcanon .row, .editcanon p { grid-column: 1 / -1; }

@@ -13,6 +13,7 @@ import { StoryboardView } from "@/components/StoryboardView";
 import { CharacterPanel } from "@/components/CharacterPanel";
 import { ShotGrid } from "@/components/ShotGrid";
 import { NarrationPanel } from "@/components/NarrationPanel";
+import { ProjectSettings } from "@/components/ProjectSettings";
 
 const STAGES = ["draft", "analyzed", "storyboarded", "characters_locked",
                 "stills", "narration", "previewed", "motion", "rendered"];
@@ -30,7 +31,7 @@ export default function ProjectPage({ params }: { params: Promise<{ pid: string 
   const [busy, setBusy] = useState<string | null>(null);
   const [length, setLength] = useState(90);
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [tab, setTab] = useState<"story" | "cast" | "stills" | "film">("story");
+  const [tab, setTab] = useState<"story" | "cast" | "stills" | "film" | "settings">("story");
 
   const { jobs, activeJobs, connected, revision, refresh } = useProjectEvents(pid);
 
@@ -99,7 +100,7 @@ export default function ProjectPage({ params }: { params: Promise<{ pid: string 
       </ol>
 
       <div className="row tabs">
-        {(["story", "cast", "stills", "film"] as const).map((t) => (
+        {(["story", "cast", "stills", "film", "settings"] as const).map((t) => (
           <button key={t} className={`chip ${tab === t ? "primary" : ""}`}
                   onClick={() => setTab(t)}>
             {t}
@@ -236,6 +237,11 @@ export default function ProjectPage({ params }: { params: Promise<{ pid: string 
           padded to fit the voice, never the other way round.
         </p>
         <NarrationPanel projectId={pid} revision={revision} onJob={refresh} />
+      </section>
+
+      <section hidden={tab !== "settings"}>
+        <h2>Settings</h2>
+        <ProjectSettings project={project} onChange={load} />
       </section>
 
       <JobDrawer jobs={jobs} connected={connected} onChange={refresh} />

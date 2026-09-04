@@ -41,9 +41,25 @@ STORY = ("A keeper kept a light for forty years. One winter night the power "
 async def client():
     reset_queue()
     async with get_sessionmaker()() as s:
-        if not (await s.execute(select(User).where(User.email == EMAIL))).scalar_one_or_none():
-            await create_user(s, email=EMAIL, display_name="Jobs", passphrase=PASS)
-            await s.commit()
+        user = (await s.execute(select(User).where(
+
+            User.email == EMAIL))).scalar_one_or_none()
+
+        if user is None:
+
+            user = await create_user(s, email=EMAIL,
+
+                                     display_name="Jobs",
+
+                                     passphrase=PASS)
+
+        # The fixture owns this account's state: an account disabled
+
+        # outside the suite must not silently break every test.
+
+        user.is_active = True
+
+        await s.commit()
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app),
                            base_url="http://test") as c:
@@ -231,11 +247,16 @@ async def test_claim_is_atomic(client):
 async def test_another_users_project_is_invisible(client):
     pid = await _project(client)
     async with get_sessionmaker()() as s:
-        if not (await s.execute(select(User).where(
-                User.email == "other@local"))).scalar_one_or_none():
-            await create_user(s, email="other@local", display_name="Other",
-                              passphrase="other-pass")
-            await s.commit()
+        other = (await s.execute(select(User).where(
+            User.email == "other@local"))).scalar_one_or_none()
+        if other is None:
+            other = await create_user(s, email="other@local",
+                                      display_name="Other",
+                                      passphrase="other-pass")
+        # This test owns the account's state, so disabling it outside the
+        # suite cannot quietly break it.
+        other.is_active = True
+        await s.commit()
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app),
                            base_url="http://test") as other:

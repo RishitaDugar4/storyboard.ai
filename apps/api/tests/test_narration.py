@@ -91,9 +91,25 @@ async def client(tmp_path):
     from app.storage import reset_storage
     get_settings.cache_clear(); reset_storage(); reset_queue()
     async with get_sessionmaker()() as s:
-        if not (await s.execute(select(User).where(User.email == EMAIL))).scalar_one_or_none():
-            await create_user(s, email=EMAIL, display_name="N", passphrase=PASS)
-            await s.commit()
+        user = (await s.execute(select(User).where(
+
+            User.email == EMAIL))).scalar_one_or_none()
+
+        if user is None:
+
+            user = await create_user(s, email=EMAIL,
+
+                                     display_name="N",
+
+                                     passphrase=PASS)
+
+        # The fixture owns this account's state: an account disabled
+
+        # outside the suite must not silently break every test.
+
+        user.is_active = True
+
+        await s.commit()
     async with AsyncClient(transport=ASGITransport(app=create_app()),
                            base_url="http://test", timeout=180) as c:
         await c.post("/api/v1/auth/session",
@@ -134,6 +150,7 @@ async def test_voices_are_listed(client):
     assert body["items"] and isinstance(body["items"][0], str)
 
 
+@pytest.mark.timeout(300)
 async def test_narration_generation_records_measured_duration(client):
     pid = await _ready_project(client)
     body = (await client.post(f"/api/v1/projects/{pid}/narration:generate_all")).json()
@@ -167,6 +184,7 @@ async def test_render_is_refused_before_a_job_exists(client):
 
 
 @needs_ffmpeg
+@pytest.mark.timeout(600)
 async def test_the_whole_pipeline_produces_a_playable_film(client):
     pid = await _ready_project(client)
     await client.post(f"/api/v1/projects/{pid}/narration:generate_all")

@@ -9,6 +9,8 @@ export function CharacterPanel({ characters, onChange }: {
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [fields, setFields] = useState<Record<string, string>>({});
 
   async function run(id: string, fn: () => Promise<unknown>) {
     setBusy(id); setError(null);
@@ -35,6 +37,14 @@ export function CharacterPanel({ characters, onChange }: {
               </div>
               <div className="row">
                 {c.locked && <span className="chip hot">locked</span>}
+                {!c.locked && editing !== c.id && (
+                  <button className="chip" onClick={() => {
+                    setEditing(c.id);
+                    setFields({ ...(c.appearance as Record<string, string>) });
+                  }}>
+                    edit
+                  </button>
+                )}
                 <button
                   disabled={busy !== null}
                   onClick={() => run(c.id, async () => {
@@ -56,7 +66,42 @@ export function CharacterPanel({ characters, onChange }: {
               </div>
             </div>
 
-            <p className="canon">{c.appearance_prompt}</p>
+            {editing === c.id && !c.locked ? (
+              <div className="editcanon">
+                {["age_impression", "build", "hair", "eyes", "skin",
+                  "default_wardrobe"].map((f) => (
+                  <label key={f} className="field">
+                    <span className="muted small">{f.replace(/_/g, " ")}</span>
+                    <input
+                      value={String(fields[f] ?? c.appearance?.[f] ?? "")}
+                      onChange={(e) =>
+                        setFields((v) => ({ ...v, [f]: e.target.value }))}
+                    />
+                  </label>
+                ))}
+                <div className="row" style={{ marginTop: 8 }}>
+                  <button
+                    disabled={busy !== null}
+                    onClick={() => run(c.id, async () => {
+                      await charactersApi.patch(c.id, { appearance: fields });
+                      setEditing(null); setFields({});
+                    })}
+                  >
+                    Save appearance
+                  </button>
+                  <button className="chip"
+                          onClick={() => { setEditing(null); setFields({}); }}>
+                    cancel
+                  </button>
+                </div>
+                <p className="muted small">
+                  Saving re-renders the canon below and marks every still they
+                  appear in as stale.
+                </p>
+              </div>
+            ) : (
+              <p className="canon">{c.appearance_prompt}</p>
+            )}
             <p className="muted small">
               {c.locked
                 ? "Frozen — this exact text goes into every prompt they appear in."

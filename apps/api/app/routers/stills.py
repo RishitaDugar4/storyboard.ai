@@ -9,20 +9,38 @@ from sqlalchemy import select
 
 from ..auth import CurrentUser, DbSession
 from ..db.ids import uuid7
-from ..db.models import (Asset, AssetKind, AssetSource, JobStatus, Project,
-                         Scene, Shot)
+from ..db.models import (Asset, AssetKind, AssetSource, Character,
+                         JobStatus, Project, Scene, Shot)
 from ..errors import DomainError, NotFound, StagePreconditionFailed
 from ..jobs import get_queue
 from ..jobs import service as jobs
 from ..ai.registry import get_image_port
 from ..schemas.api.story import JobAccepted
-from ..services.still_service import (cached_asset, check_budget, plan_still,
-                                       still_is_fresh, BudgetExceeded)
+from ..services.still_service import (BudgetExceeded, PriceUnknown,
+                                       cached_asset, check_budget, plan_still,
+                                       recompute_image_hash, still_is_fresh)
 from ..storage import asset_key, get_storage
 
 router = APIRouter(prefix="/api/v1", tags=["stills"])
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+class ShotUpdate(BaseModel):
+    """Editing a shot without regenerating the whole storyboard.
+
+    Changing `action` alters the composed prompt, which makes any existing
+    still stale -- correctly, and visibly, rather than silently.
+    """
+
+    action: str | None = Field(default=None, min_length=1, max_length=400)
+    composition_note: str | None = Field(default=None, max_length=240)
+    camera_move: str | None = None
+    subject_motion: str | None = Field(default=None, max_length=300)
+    target_duration_s: float | None = Field(default=None, ge=2.5, le=12.0)
+    motion_priority: str | None = Field(default=None, pattern="^(low|medium|high)$")
+    subject_slugs: list[str] | None = Field(default=None, max_length=3)
+    prompt_override: str | None = Field(default=None, max_length=2000)
 
 
 class GenerateStill(BaseModel):
@@ -84,6 +102,42 @@ async def list_shots(project_id: uuid.UUID, session: DbSession,
             "still_fresh": still_is_fresh(sh, asset),
         })
     return {"items": items, "total": len(items)}
+
+
+@router.patch("/shots/{shot_id}")
+async def patch_shot(shot_id: uuid.UUID, body: ShotUpdate, session: DbSession,
+                     user: CurrentUser) -> dict:
+    shot, project = await _owned_shot(session, user, shot_id)
+    changes = body.model_dump(exclude_unset=True)
+
+    if (slugs := changes.get("subject_slugs")) is not None:
+        known = {c.slug for c in (await session.execute(
+            select(Character).where(Character.project_id == project.id))).scalars()}
+        if unknown := set(slugs) - known:
+            raise DomainError(
+                f"unknown character slug(s): {', '.join(sorted(unknown))}. "
+                f"Known: {', '.join(sorted(known)) or 'none'}.",
+                code="validation_failed")
+
+    for field, value in changes.items():
+        if value is not None or field == "prompt_override":
+            setattr(shot, field, value)
+    await session.flush()
+
+    # The prompt may have changed, so the shot's idea of "current" must be
+    # refreshed before freshness is reported.
+    await recompute_image_hash(session, shot, project)
+    await session.flush()
+
+    asset = (await session.get(Asset, shot.selected_image_id)
+             if shot.selected_image_id else None)
+    await jobs.notify_entity(project.id, "shot", shot.id, "edited")
+    return {"id": str(shot.id), "action": shot.action,
+            "camera_move": str(shot.camera_move),
+            "target_duration_s": float(shot.target_duration_s),
+            "motion_priority": shot.motion_priority,
+            "subject_slugs": shot.subject_slugs,
+            "still_fresh": still_is_fresh(shot, asset)}
 
 
 @router.get("/shots/{shot_id}/prompt")

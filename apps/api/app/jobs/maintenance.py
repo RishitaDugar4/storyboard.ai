@@ -81,8 +81,51 @@ async def reap_stuck_jobs(session: AsyncSession | None = None) -> int:
     return reaped
 
 
+#: A row can sit in QUEUED with nothing working on it: the process died between
+#: the commit and the enqueue, or a retryable failure requeued it without
+#: pushing it back to the broker. The database is the source of truth and the
+#: broker is a hint, so something has to reconcile them.
+REQUEUE_AFTER_S = 60
+
+
+async def requeue_stranded_jobs(session: AsyncSession | None = None) -> int:
+    """Push QUEUED rows back to the broker if they have been waiting too long.
+
+    Safe to do blindly: claim() is atomic, so a duplicate delivery finds
+    nothing to take.
+    """
+    from . import get_queue
+
+    own_session = session is None
+    session = session or get_sessionmaker()()
+    requeued = 0
+    try:
+        cutoff = jobs.now() - timedelta(seconds=REQUEUE_AFTER_S)
+        stranded = (await session.execute(
+            select(Job).where(Job.status == JobStatus.QUEUED,
+                              Job.queued_at < cutoff))).scalars().all()
+        queue = get_queue()
+        for job in stranded:
+            log.warning("requeueing stranded job %s (%s), queued %s",
+                        job.id, job.kind, job.queued_at.isoformat())
+            await queue.enqueue(job.kind, job.id)
+            # Move the clock forward so a job the broker is genuinely holding
+            # is not re-pushed every single minute.
+            job.queued_at = jobs.now()
+            requeued += 1
+        if requeued:
+            await session.commit()
+    finally:
+        if own_session:
+            await session.close()
+    return requeued
+
+
 async def cron_reap_stuck_jobs(ctx) -> None:
     """arq cron entrypoint."""
     n = await reap_stuck_jobs()
     if n:
         log.info("reaped %d stuck job(s)", n)
+    r = await requeue_stranded_jobs()
+    if r:
+        log.info("requeued %d stranded job(s)", r)

@@ -119,3 +119,40 @@ async def test_reaping_is_idempotent(project_id):
     await _stuck_job(project_id, age_s=10_000, attempt=3, max_attempts=3)
     assert await reap_stuck_jobs() == 1
     assert await reap_stuck_jobs() == 0      # nothing left in a live state
+
+
+async def test_stranded_queued_jobs_are_pushed_back_to_the_broker(project_id):
+    """A row can sit QUEUED with nothing working on it -- the process died
+    between commit and enqueue, or a retry requeued it without re-pushing."""
+    from datetime import timedelta
+    from app.jobs import get_queue, reset_queue
+    from app.jobs.maintenance import REQUEUE_AFTER_S, requeue_stranded_jobs
+
+    reset_queue()
+    async with get_sessionmaker()() as s:
+        job = Job(id=uuid7(), project_id=project_id, kind="story.analyze",
+                  status=JobStatus.QUEUED, idempotency_key=uuid7().hex,
+                  queued_at=jobs.now() - timedelta(seconds=REQUEUE_AFTER_S + 30))
+        s.add(job)
+        await s.commit()
+        jid = job.id
+
+    assert await requeue_stranded_jobs() == 1
+    async with get_sessionmaker()() as s:
+        refreshed = await s.get(Job, jid)
+    # The clock moves forward so a job the broker really is holding is not
+    # re-pushed every minute.
+    assert refreshed.queued_at > job.queued_at
+    assert await requeue_stranded_jobs() == 0
+
+
+async def test_recently_queued_jobs_are_left_for_the_broker(project_id):
+    from app.jobs import reset_queue
+    from app.jobs.maintenance import requeue_stranded_jobs
+    reset_queue()
+    async with get_sessionmaker()() as s:
+        s.add(Job(id=uuid7(), project_id=project_id, kind="story.analyze",
+                  status=JobStatus.QUEUED, idempotency_key=uuid7().hex,
+                  queued_at=jobs.now()))
+        await s.commit()
+    assert await requeue_stranded_jobs() == 0

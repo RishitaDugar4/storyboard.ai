@@ -10,7 +10,7 @@ OUT      := $(API)/out
 .PHONY: help venv up down api web migrate migration db-shell render-demo \
         render-preview render-final preflight demo-fixtures test test-api \
         test-render test-ai ai-fixtures analyze storyboard storyboard-fake \
-        eval eval-fake user-add user-list worker dev dev-fake smoke \
+        eval eval-fake user-add user-list worker dev dev-fake dev-stop smoke \
         clean-render bakeoff-fake stack-up stack-down stack-logs \
         deploy deploy-bootstrap deploy-logs deploy-ps deploy-backup
 
@@ -32,6 +32,13 @@ dev: ## run the whole stack (db, redis, api, worker, web) — Ctrl-C stops it
 
 dev-fake: ## same, with fake providers (zero spend)
 	@FAKE=1 ./scripts/dev.sh
+
+dev-stop: ## stop anything a previous 'make dev' left running
+	@pkill -f "scripts/dev.sh" 2>/dev/null || true
+	@pkill -f "uvicorn app.main" 2>/dev/null || true
+	@pkill -f "arq app.jobs" 2>/dev/null || true
+	@pkill -f "next dev" 2>/dev/null || true
+	@echo "  stopped"
 
 smoke: ## drive the product end to end:  make smoke EMAIL=you@local PASS='...'
 	@./scripts/smoke.sh

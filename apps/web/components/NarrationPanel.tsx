@@ -21,6 +21,7 @@ export function NarrationPanel({ projectId, revision, onJob }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [watchingId, setWatchingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -51,6 +52,8 @@ export function NarrationPanel({ projectId, revision, onJob }: {
   const total = shots.flatMap((s) => s.lines).length;
   const blocked = shots.filter((s) => s.fit.blocks_render).length;
   const latest = renders[0];
+  const playable = renders.filter((r) => r.video_url);
+  const watching = playable.find((r) => r.id === watchingId) ?? playable[0];
 
   return (
     <>
@@ -99,24 +102,52 @@ export function NarrationPanel({ projectId, revision, onJob }: {
         </div>
       )}
 
-      {latest?.video_url && latest.status === "succeeded" && (
+      {watching?.video_url && (
         <div className="board" style={{ marginTop: 14 }}>
-          <strong>Preview</strong>
-          <p className="muted small">
-            {((latest.duration_ms ?? 0) / 1000).toFixed(1)}s · {latest.clips} shots ·{" "}
-            {new Date(latest.created_at).toLocaleString()}
-          </p>
+          <div className="row between">
+            <strong>{watching === latest ? "Latest render" : "Earlier render"}</strong>
+            <span className="muted small">
+              {((watching.duration_ms ?? 0) / 1000).toFixed(1)}s ·{" "}
+              {watching.clips} shots ·{" "}
+              {new Date(watching.created_at).toLocaleString()}
+            </span>
+          </div>
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <video src={latest.video_url} poster={latest.poster_url ?? undefined}
-                 controls style={{ width: "100%", borderRadius: 10, marginTop: 8 }} />
-          <a href={latest.video_url} download className="chip"
-             style={{ display: "inline-block", marginTop: 10 }}>
-            download
+          <video key={watching.id} src={watching.video_url}
+                 poster={watching.poster_url ?? undefined} controls
+                 style={{ width: "100%", borderRadius: 10, marginTop: 8 }} />
+          <a href={watching.video_url}
+             download={`${watching.profile}-${watching.id.slice(0, 8)}.mp4`}
+             className="chip" style={{ display: "inline-block", marginTop: 10 }}>
+            save to your computer
           </a>
         </div>
       )}
       {latest && latest.status === "failed" && (
         <p className="err">Render failed: {latest.error?.slice(0, 200)}</p>
+      )}
+
+      {renders.length > 1 && (
+        <div style={{ marginTop: 12 }}>
+          <p className="muted small">
+            {renders.length} renders — every version is kept, so you can compare
+            a change against what it replaced.
+          </p>
+          <div className="row" style={{ gap: 8 }}>
+            {renders.map((r) => (
+              <button
+                key={r.id}
+                className={`chip ${r.id === watchingId ? "primary" : ""}`}
+                disabled={!r.video_url}
+                onClick={() => setWatchingId(r.id)}
+                title={new Date(r.created_at).toLocaleString()}
+              >
+                {r.profile} · {((r.duration_ms ?? 0) / 1000).toFixed(0)}s
+                {r.status !== "succeeded" && ` · ${r.status}`}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       <div style={{ marginTop: 18 }}>

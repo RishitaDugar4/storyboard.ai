@@ -13,6 +13,7 @@ from ..errors import DomainError, NotFound
 from ..services.character_service import (CharacterLocked, lock_character,
                                           unlock_character, unlock_impact,
                                           update_character)
+from ..services.still_service import recompute_hashes_for_character
 
 router = APIRouter(prefix="/api/v1", tags=["characters"])
 
@@ -73,10 +74,15 @@ async def patch_character(character_id: uuid.UUID, body: CharacterUpdate,
     try:
         c = await update_character(session, c,
                                    body.model_dump(exclude_unset=True))
+        if body.appearance or body.name:
+            # The canon is embedded verbatim in every prompt featuring them,
+            # so editing it makes exactly those stills stale.
+            project = await session.get(Project, c.project_id)
+            await recompute_hashes_for_character(session, project, c.slug)
     except CharacterLocked as exc:
         raise DomainError(str(exc), code="character_locked",
                           status_code=409) from exc
-    return _read(c)
+    return _read(c, await unlock_impact(session, c))
 
 
 @router.post("/characters/{character_id}:lock")

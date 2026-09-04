@@ -6,6 +6,7 @@ import { ApiError, api } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -15,15 +16,23 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.login(passphrase);
+      await api.login(email, passphrase);
       router.replace("/projects");
       router.refresh();
     } catch (err) {
-      setError(
-        err instanceof ApiError && err.code === "unauthorized"
-          ? "That passphrase is not correct."
-          : "Could not reach the API. Is it running on :8000?",
-      );
+      // Distinguish the three real cases. Reporting a rejected credential as
+      // "the API is down" sends you debugging the wrong thing entirely.
+      if (err instanceof ApiError) {
+        setError(
+          err.code === "unauthorized"
+            ? "That email and passphrase do not match an account."
+            : err.code === "validation_failed"
+              ? "Enter both an email address and a passphrase."
+              : `${err.problem.title}: ${err.problem.detail}`,
+        );
+      } else {
+        setError("Could not reach the API. Is `make dev` running?");
+      }
     } finally {
       setBusy(false);
     }
@@ -32,19 +41,29 @@ export default function LoginPage() {
   return (
     <main>
       <h1>hbday-zee</h1>
-      <p className="sub">This is a private project. Enter the passphrase.</p>
-      <form onSubmit={submit} className="row">
+      <p className="sub">This is a private project. Sign in to continue.</p>
+      <form onSubmit={submit}>
         <input
-          type="password"
-          value={passphrase}
-          onChange={(e) => setPassphrase(e.target.value)}
-          placeholder="Passphrase"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@local"
+          autoComplete="username"
           autoFocus
-          autoComplete="current-password"
+          style={{ width: "100%", marginBottom: 10 }}
         />
-        <button type="submit" disabled={busy || !passphrase}>
-          {busy ? "Checking…" : "Enter"}
-        </button>
+        <div className="row">
+          <input
+            type="password"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            placeholder="Passphrase"
+            autoComplete="current-password"
+          />
+          <button type="submit" disabled={busy || !email || !passphrase}>
+            {busy ? "Checking…" : "Enter"}
+          </button>
+        </div>
       </form>
       {error && <p className="err">{error}</p>}
     </main>

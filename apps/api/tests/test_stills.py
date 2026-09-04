@@ -134,9 +134,25 @@ async def client(tmp_path):
     from app.storage import reset_storage
     get_settings.cache_clear(); reset_storage(); reset_queue()
     async with get_sessionmaker()() as s:
-        if not (await s.execute(select(User).where(User.email == EMAIL))).scalar_one_or_none():
-            await create_user(s, email=EMAIL, display_name="S", passphrase=PASS)
-            await s.commit()
+        user = (await s.execute(select(User).where(
+
+            User.email == EMAIL))).scalar_one_or_none()
+
+        if user is None:
+
+            user = await create_user(s, email=EMAIL,
+
+                                     display_name="S",
+
+                                     passphrase=PASS)
+
+        # The fixture owns this account's state: an account disabled
+
+        # outside the suite must not silently break every test.
+
+        user.is_active = True
+
+        await s.commit()
     async with AsyncClient(transport=ASGITransport(app=create_app()),
                            base_url="http://test") as c:
         await c.post("/api/v1/auth/session",
@@ -296,3 +312,52 @@ async def test_shots_are_ordered_by_scene_then_shot(client):
     # And stable across calls, which is what the UI and the renderer rely on.
     again = (await client.get(f"/api/v1/projects/{pid}/shots")).json()["items"]
     assert [s["id"] for s in again] == [s["id"] for s in items]
+
+
+# ---- editing --------------------------------------------------------------
+async def test_editing_a_shot_makes_its_still_stale(client):
+    """Changing the action changes the prompt, so the picture no longer matches
+    the words that produced it -- and must say so rather than look current."""
+    pid, shots = await _project_with_shots(client)
+    sid = shots[0]["id"]
+    await client.post(f"/api/v1/shots/{sid}/image:generate", json={"n": 1})
+    await get_queue().drain()
+    before = next(s for s in (await client.get(f"/api/v1/projects/{pid}/shots")).json()["items"]
+                  if s["id"] == sid)
+    assert before["still_fresh"] is True
+
+    r = await client.patch(f"/api/v1/shots/{sid}",
+                           json={"action": "A completely different moment"})
+    assert r.status_code == 200 and r.json()["still_fresh"] is False
+
+
+async def test_shot_edits_persist(client):
+    pid, shots = await _project_with_shots(client)
+    sid = shots[0]["id"]
+    await client.patch(f"/api/v1/shots/{sid}",
+                       json={"camera_move": "pan_left", "target_duration_s": 8.5,
+                             "motion_priority": "high"})
+    row = next(s for s in (await client.get(f"/api/v1/projects/{pid}/shots")).json()["items"]
+               if s["id"] == sid)
+    assert row["camera_move"] == "pan_left"
+    assert row["target_duration_s"] == 8.5
+    assert row["motion_priority"] == "high"
+
+
+async def test_shot_rejects_an_unknown_character(client):
+    """A dangling slug would produce a prompt referring to nobody."""
+    _, shots = await _project_with_shots(client)
+    r = await client.patch(f"/api/v1/shots/{shots[0]['id']}",
+                           json={"subject_slugs": ["nobody-here"]})
+    assert r.status_code == 400
+    assert "unknown character slug" in r.json()["detail"]
+
+
+async def test_character_appearance_can_be_edited_while_unlocked(client):
+    pid, _ = await _project_with_shots(client)
+    c = (await client.get(f"/api/v1/projects/{pid}/characters")).json()["items"][0]
+    r = await client.patch(f"/api/v1/characters/{c['id']}",
+                           json={"appearance": {"hair": "close-cropped silver"}})
+    assert r.status_code == 200
+    # The canon is re-rendered so the preview matches what a prompt would use.
+    assert "close-cropped silver" in r.json()["appearance_prompt"]

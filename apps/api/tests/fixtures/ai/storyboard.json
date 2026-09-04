@@ -1,0 +1,557 @@
+{
+  "schema_version": "3.0",
+  "title": "The Lighthouse Keeper",
+  "logline": "An ageing keeper turns a lighthouse lens by hand through a blackout storm so that eleven men she will never meet can find harbour.",
+  "style_bible": {
+    "art_style": "Soft gouache storybook illustration with visible brush texture and simplified, graphic shapes",
+    "palette": [
+      "slate grey",
+      "lamp amber",
+      "deep sea green",
+      "bone white",
+      "storm indigo"
+    ],
+    "lighting": "A single warm light source against cold ambient blue",
+    "camera_language": "Patient, mostly locked-off framing; movement only when the story turns",
+    "line_and_texture": "Soft edges, dry-brush grain, no fine linework",
+    "motion_language": "Gentle, unhurried camera movement; nothing whips or snaps",
+    "negative": [
+      "photorealism",
+      "harsh outlines",
+      "lens flare",
+      "text",
+      "watermark"
+    ]
+  },
+  "characters": [
+    {
+      "slug": "mara",
+      "name": "Mara Halloran",
+      "role": "keeper",
+      "age_impression": "early seventies",
+      "build": "small and wiry, slightly stooped",
+      "hair": "white, cropped short, wind-disordered",
+      "eyes": "pale grey, deep-set, steady",
+      "skin": "weathered and wind-reddened, freckled across the nose",
+      "distinguishing_features": [
+        "knuckles swollen from cold",
+        "a habitual squint against wind"
+      ],
+      "default_wardrobe": "a heavy oilskin coat over a fisherman's jumper, fingerless wool gloves",
+      "voice": {
+        "age_range": "elderly",
+        "timbre": "dry and warm",
+        "pace": "slow",
+        "accent": "coastal"
+      }
+    }
+  ],
+  "locations": [
+    {
+      "slug": "lamp-room",
+      "name": "The lamp room",
+      "description": "The glass chamber at the top of the tower housing the lens",
+      "prompt_fragment": "a cramped glass lamp room, brass fittings, a huge faceted lens, storm-black windows"
+    },
+    {
+      "slug": "stair",
+      "name": "The tower stair",
+      "description": "A tight spiral of 211 stone steps",
+      "prompt_fragment": "a narrow spiral stone staircase, worn treads, deep shadow"
+    },
+    {
+      "slug": "kitchen",
+      "name": "The keeper's kitchen",
+      "description": "A small room with one electric bulb and a ledger on the table",
+      "prompt_fragment": "a small spare kitchen, scrubbed table, an open ledger"
+    },
+    {
+      "slug": "sea",
+      "name": "The sea off Corrow Point",
+      "description": "Open water, changing with the season",
+      "prompt_fragment": "open grey-green sea under a low sky, no land in sight"
+    }
+  ],
+  "scenes": [
+    {
+      "local_index": 0,
+      "title": "The light",
+      "summary": "Establishing the lighthouse across decades",
+      "location_slug": "sea",
+      "present_slugs": [],
+      "time_of_day": "dusk",
+      "mood": "elegiac",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "establishing",
+          "subject_slugs": [],
+          "action": "The lighthouse stands alone on a black rock as dusk falls over open water",
+          "composition_note": "",
+          "camera_move": "push_in",
+          "subject_motion": "The beam sweeps once across the water; waves move slowly below",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "high",
+          "target_duration_s": 8.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "For forty-one winters, Mara kept the light burning.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 1,
+      "title": "Nobody asked",
+      "summary": "Her solitude, stated plainly",
+      "location_slug": "kitchen",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "night",
+      "mood": "spare",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "medium",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara sits alone at a scrubbed table writing in a ledger by one dim bulb",
+          "composition_note": "",
+          "camera_move": "static",
+          "subject_motion": "Her hand moves steadily across the page; the bulb flickers faintly",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "low",
+          "target_duration_s": 6.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "Nobody had ever asked her to.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 2,
+      "title": "The moods of the sea",
+      "summary": "She knows the water like a language",
+      "location_slug": "sea",
+      "present_slugs": [],
+      "time_of_day": "day",
+      "mood": "watchful",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "wide",
+          "subject_slugs": [],
+          "action": "Flat grey water stretching to a pale horizon under high cloud",
+          "composition_note": "",
+          "camera_move": "pan_right",
+          "subject_motion": "Light moves slowly across the surface of the water",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "low",
+          "target_duration_s": 6.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "She learned the sea the way others learn a language.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 3,
+      "title": "February",
+      "summary": "The sea at its worst",
+      "location_slug": "sea",
+      "present_slugs": [],
+      "time_of_day": "night",
+      "mood": "violent",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "wide",
+          "subject_slugs": [],
+          "action": "Black water hammering against rock under a starless sky",
+          "composition_note": "",
+          "camera_move": "static",
+          "subject_motion": "Spray bursts upward and falls; the water heaves",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "medium",
+          "target_duration_s": 5.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "Black hammering in February.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 4,
+      "title": "The ledger",
+      "summary": "Her small unread record",
+      "location_slug": "kitchen",
+      "present_slugs": [],
+      "time_of_day": "night",
+      "mood": "quiet",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "insert",
+          "subject_slugs": [],
+          "action": "A close view of a ledger page filled with tiny handwriting and weather notes",
+          "composition_note": "",
+          "camera_move": "push_in",
+          "subject_motion": "The page edge lifts slightly in a draught",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "low",
+          "target_duration_s": 6.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "She wrote the weather in a ledger nobody read.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 5,
+      "title": "The blackout",
+      "summary": "All power fails",
+      "location_slug": "kitchen",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "night",
+      "mood": "sudden",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "medium",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara sits in total darkness, the bulb above her dead",
+          "composition_note": "",
+          "camera_move": "static",
+          "subject_motion": "Nothing moves but her breath; darkness settles",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "medium",
+          "target_duration_s": 5.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "In her seventy-third winter, the island went dark.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 6,
+      "title": "They cannot see her",
+      "summary": "The realisation",
+      "location_slug": "kitchen",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "night",
+      "mood": "dread",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "close_up",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara's face in near darkness, turned toward the sound of the storm",
+          "composition_note": "",
+          "camera_move": "push_in",
+          "subject_motion": "Her eyes shift slightly; her jaw tightens",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "high",
+          "target_duration_s": 6.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "Out there, the ships could not see her.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 7,
+      "title": "The climb",
+      "summary": "211 steps in the dark",
+      "location_slug": "stair",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "night",
+      "mood": "resolute",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "wide",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara climbs a narrow spiral stair carrying an oil can and matches",
+          "composition_note": "",
+          "camera_move": "tilt_up",
+          "subject_motion": "She climbs steadily upward, one hand on the wall",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "high",
+          "target_duration_s": 8.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "So she climbed. Two hundred and eleven steps.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 8,
+      "title": "Lit by hand",
+      "summary": "The old lamp, the old way",
+      "location_slug": "lamp-room",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "night",
+      "mood": "reverent",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "medium",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara touches a lit match to the wick of a large brass oil lamp",
+          "composition_note": "",
+          "camera_move": "push_in",
+          "subject_motion": "The flame catches and grows; warm light spreads across brass",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "high",
+          "target_duration_s": 6.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "She lit it by hand, as the first keeper had.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 9,
+      "title": "Turning",
+      "summary": "She becomes the clockwork",
+      "location_slug": "lamp-room",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "night",
+      "mood": "straining",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "medium",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara leans into a handle, turning the great lens by her own strength",
+          "composition_note": "",
+          "camera_move": "orbit",
+          "subject_motion": "The lens rotates slowly; her shoulders work against the weight",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "high",
+          "target_duration_s": 8.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "The clockwork needed power she did not have.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 10,
+      "title": "Four in the morning",
+      "summary": "Past the end of her strength",
+      "location_slug": "lamp-room",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "night",
+      "mood": "exhausted",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "close_up",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara's stiff hands gripping the handle, knuckles white",
+          "composition_note": "",
+          "camera_move": "static",
+          "subject_motion": "Her fingers tremble but do not release",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "medium",
+          "target_duration_s": 6.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "Her shoulders gave out. She kept turning.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 11,
+      "title": "Bright Endeavour",
+      "summary": "The trawler finds harbour",
+      "location_slug": "sea",
+      "present_slugs": [],
+      "time_of_day": "dawn",
+      "mood": "relief",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "wide",
+          "subject_slugs": [],
+          "action": "A trawler moves through grey dawn water toward a harbour mouth",
+          "composition_note": "",
+          "camera_move": "pull_out",
+          "subject_motion": "The boat moves steadily forward through low swell",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "high",
+          "target_duration_s": 8.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "At seven, eleven men made harbour.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 12,
+      "title": "Not brave",
+      "summary": "Her correction",
+      "location_slug": "kitchen",
+      "present_slugs": [
+        "mara"
+      ],
+      "time_of_day": "day",
+      "mood": "plain",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "close_up",
+          "subject_slugs": [
+            "mara"
+          ],
+          "action": "Mara sits upright, looking directly ahead, unimpressed",
+          "composition_note": "",
+          "camera_move": "static",
+          "subject_motion": "She blinks once, slowly",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "medium",
+          "target_duration_s": 6.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "It was not brave, she said. Bravery is decided.",
+          "delivery": "wistful"
+        }
+      ]
+    },
+    {
+      "local_index": 13,
+      "title": "Never considered",
+      "summary": "The last line",
+      "location_slug": "sea",
+      "present_slugs": [],
+      "time_of_day": "dusk",
+      "mood": "elegiac",
+      "shots": [
+        {
+          "local_index": 0,
+          "shot_type": "establishing",
+          "subject_slugs": [],
+          "action": "The lighthouse small against a wide darkening sea, its beam turning",
+          "composition_note": "",
+          "camera_move": "pull_out",
+          "subject_motion": "The beam completes one slow sweep across the water",
+          "ambient_sound": "wind and sea",
+          "motion_priority": "high",
+          "target_duration_s": 8.0
+        }
+      ],
+      "narration": [
+        {
+          "local_index": 0,
+          "shot_local_index": 0,
+          "speaker": "narrator",
+          "text": "She had never considered letting it go out.",
+          "delivery": "wistful"
+        }
+      ]
+    }
+  ]
+}

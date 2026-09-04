@@ -21,9 +21,14 @@ class DomainError(Exception):
     code = "domain_error"
     title = "Request could not be processed"
 
-    def __init__(self, detail: str = "", **meta) -> None:
+    def __init__(self, detail: str = "", *, code: str | None = None,
+                 status_code: int | None = None, **meta) -> None:
         super().__init__(detail or self.title)
         self.detail = detail or self.title
+        if code:
+            self.code = code
+        if status_code:
+            self.status_code = status_code
         self.meta = meta
 
 

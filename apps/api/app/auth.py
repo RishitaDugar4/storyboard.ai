@@ -1,35 +1,32 @@
-"""Passphrase gate + signed session cookie.
+"""Per-user authentication.
 
-A gate, not a product surface: one shared passphrase mints a signed cookie
-naming the single owner row. No password hashing, no registration, no reset
-flow -- all of which would be real work for zero user-facing value here
-(ARCHITECTURE section 15).
+Accounts are created from the CLI, not by signup: this app has exactly the
+users it was built for, and a registration flow would be a surface with no
+purpose. Each user owns their own projects, and ownership is checked on every
+read -- two people sharing the instance never see each other's work.
 """
 from __future__ import annotations
 
-import hmac
+import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import Cookie, Depends, Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import Settings, get_settings
 from .db.models import User
 from .db.session import get_session
 from .errors import Unauthorized
+from .security import hash_passphrase, verify_passphrase
 
 _SALT = "hbz-session-v1"
 
 
 def _serializer(s: Settings) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(s.session_secret, salt=_SALT)
-
-
-def verify_passphrase(candidate: str, s: Settings) -> bool:
-    # Constant-time: a timing oracle on a shared secret is cheap to avoid.
-    return hmac.compare_digest(candidate.encode(), s.app_passphrase.encode())
 
 
 def issue_session(response: Response, user: User, s: Settings) -> None:
@@ -44,14 +41,36 @@ def clear_session(response: Response, s: Settings) -> None:
     response.delete_cookie(s.session_cookie_name, path="/")
 
 
-async def ensure_owner(session: AsyncSession, s: Settings) -> User:
-    """Return the single owner row, creating it on first use."""
+async def authenticate(session: AsyncSession, email: str,
+                       passphrase: str) -> User:
+    """Verify credentials, or raise the same error either way.
+
+    Email lookup is case-insensitive; the failure message never distinguishes
+    "no such account" from "wrong passphrase", so it cannot be used to
+    enumerate who has an account here.
+    """
     user = (await session.execute(
-        select(User).where(User.email == s.owner_email))).scalar_one_or_none()
-    if user is None:
-        user = User(email=s.owner_email, display_name=s.owner_name)
-        session.add(user)
-        await session.flush()
+        select(User).where(func.lower(User.email) == email.strip().lower())
+    )).scalar_one_or_none()
+
+    if user is None or not user.is_active:
+        # Hash anyway so a missing account is not measurably faster than a
+        # wrong passphrase.
+        verify_passphrase(passphrase, "scrypt$32768$8$1$00$00")
+        raise Unauthorized("incorrect email or passphrase")
+    if not verify_passphrase(passphrase, user.passphrase_hash):
+        raise Unauthorized("incorrect email or passphrase")
+
+    user.last_login_at = datetime.now(timezone.utc)
+    return user
+
+
+async def create_user(session: AsyncSession, *, email: str, display_name: str,
+                      passphrase: str) -> User:
+    user = User(email=email.strip().lower(), display_name=display_name.strip(),
+                passphrase_hash=hash_passphrase(passphrase))
+    session.add(user)
+    await session.flush()
     return user
 
 
@@ -70,9 +89,9 @@ async def current_user(
     except BadSignature:
         raise Unauthorized("invalid session") from None
 
-    user = await session.get(User, __import__("uuid").UUID(data["uid"]))
-    if user is None:
-        raise Unauthorized("session refers to a missing user")
+    user = await session.get(User, uuid.UUID(data["uid"]))
+    if user is None or not user.is_active:
+        raise Unauthorized("account is no longer active")
     return user
 
 

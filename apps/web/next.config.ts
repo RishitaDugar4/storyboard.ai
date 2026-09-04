@@ -8,13 +8,22 @@ const API = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
 const config: NextConfig = {
   reactStrictMode: true,
   // Standalone output ships only the files the server actually needs, which
-  // keeps the production image small and avoids installing dev dependencies
-  // on the box.
-  output: "standalone",
+  // keeps the production image small. It is opt-in because it also disables
+  // `next start` -- the Dockerfile sets NEXT_OUTPUT=standalone and runs
+  // server.js directly; local runs keep the normal server.
+  ...(process.env.NEXT_OUTPUT === "standalone"
+    ? { output: "standalone" as const }
+    : {}),
   // The browser talks only to the Next origin, so the session cookie stays
   // first-party and no CORS credentials dance is needed in the browser.
   async rewrites() {
-    return [{ source: "/api/:path*", destination: `${API}/api/:path*` }];
+    // Mirrors the Caddy routing in deploy/Caddyfile, so a path that works in
+    // production works here too.
+    return [
+      { source: "/api/:path*", destination: `${API}/api/:path*` },
+      { source: "/healthz", destination: `${API}/healthz` },
+      { source: "/readyz", destination: `${API}/readyz` },
+    ];
   },
 };
 

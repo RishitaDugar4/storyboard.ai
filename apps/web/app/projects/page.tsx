@@ -69,7 +69,8 @@ export default function ProjectsPage() {
       ) : (
         <ul className="projects">
           {projects.map((p) => (
-            <li key={p.id}>
+            <li key={p.id} onClick={() => router.push(`/projects/${p.id}`)}
+                style={{ cursor: "pointer" }}>
               <span>{p.title}</span>
               <span className="stage">{p.stage.replace(/_/g, " ")}</span>
             </li>

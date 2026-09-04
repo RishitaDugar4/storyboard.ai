@@ -38,3 +38,116 @@ ul.projects li {
 .err { color: #b3261e; margin-top: 12px; }
 .empty { color: var(--muted); border: 1px dashed var(--line);
          border-radius: 10px; padding: 28px; text-align: center; }
+
+/* ---- project workspace -------------------------------------------------- */
+main.wide { max-width: 940px; }
+section { margin: 34px 0; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+textarea {
+  width: 100%; font: 14px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--card); color: var(--fg); resize: vertical;
+}
+.row.between { justify-content: space-between; align-items: center; }
+.row { align-items: center; flex-wrap: wrap; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.over { color: #b3261e; font-weight: 600; }
+
+ol.stepper { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0 0 26px;
+             flex-wrap: wrap; }
+ol.stepper li { font-size: 12px; color: var(--muted); border: 1px solid var(--line);
+                border-radius: 999px; padding: 3px 11px; }
+ol.stepper li.done { color: var(--bg); background: var(--accent);
+                     border-color: var(--accent); }
+
+.chip { font-size: 12px; border: 1px solid var(--line); border-radius: 999px;
+        padding: 3px 10px; background: var(--card); color: var(--muted);
+        cursor: pointer; }
+.chip.primary { color: var(--fg); border-color: var(--accent); }
+.chip.hot { color: var(--accent); border-color: var(--accent); cursor: default; }
+
+.board { border: 1px solid var(--line); border-radius: 12px; padding: 18px;
+         background: var(--card); }
+.logline { margin: 0 0 4px; font-size: 15px; }
+.tabs { margin: 14px 0 18px; }
+.scene { border-top: 1px solid var(--line); padding: 14px 0; }
+.scene:first-of-type { border-top: none; }
+.shot { margin: 8px 0 4px; }
+.shot p { margin: 6px 0 0; }
+.narration { margin: 8px 0 0; padding-left: 12px;
+             border-left: 2px solid var(--line); color: var(--muted);
+             font-style: italic; }
+
+/* ---- job drawer --------------------------------------------------------- */
+.jobs { position: fixed; right: 20px; bottom: 20px; width: 330px; max-width: 88vw;
+        border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+        padding: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.14); z-index: 40; }
+.jobs header { display: flex; align-items: center; gap: 7px; font-size: 12px;
+               color: var(--muted); margin-bottom: 10px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.dot.live { background: #2e9e5b; }
+.job { border-top: 1px solid var(--line); padding: 9px 0; font-size: 13px; }
+.job:first-of-type { border-top: none; }
+.job-row { display: flex; justify-content: space-between; gap: 10px; }
+.bar { height: 3px; background: var(--line); border-radius: 2px; margin: 7px 0;
+       overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent);
+         transition: width .35s ease; }
+.job.failed .job-row { color: #b3261e; }
+.job-error { margin-top: 6px; font-size: 12px; }
+.job-error code { color: #b3261e; }
+.job-error p { margin: 4px 0 6px; color: var(--muted); }
+.job-error button { padding: 3px 10px; font-size: 12px; }
+
+/* ---- cast --------------------------------------------------------------- */
+.canon { margin: 8px 0 4px; font-size: 13px; line-height: 1.6;
+         padding: 9px 11px; background: var(--bg); border-radius: 8px;
+         border: 1px solid var(--line); }
+
+/* ---- shots -------------------------------------------------------------- */
+.shots { display: grid; gap: 14px; }
+.shotcard { display: grid; grid-template-columns: 168px 1fr; gap: 14px;
+            border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+            background: var(--card); }
+@media (max-width: 640px) { .shotcard { grid-template-columns: 1fr; } }
+.thumb { position: relative; aspect-ratio: 16/9; border-radius: 8px;
+         overflow: hidden; background: var(--bg); border: 1px solid var(--line);
+         display: flex; align-items: center; justify-content: center; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.badge { position: absolute; top: 6px; left: 6px; font-size: 11px;
+         padding: 1px 7px; border-radius: 999px; background: #b3261e;
+         color: #fff; }
+.badge.ok { background: var(--accent); color: var(--bg); }
+.shotbody .action { margin: 8px 0; font-size: 14px; }
+.candidates { margin-top: 10px; gap: 8px; }
+.cand { padding: 0; border: 2px solid transparent; border-radius: 8px;
+        overflow: hidden; width: 96px; height: 54px; cursor: pointer;
+        background: none; }
+.cand.on { border-color: var(--accent); }
+.cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ---- prompt inspector --------------------------------------------------- */
+.inspector { margin-top: 12px; padding: 12px; border-radius: 10px;
+             border: 1px solid var(--line); background: var(--bg); }
+.inspector .prompt { font-size: 13px; line-height: 1.8; margin: 10px 0; }
+.legend { gap: 5px; margin-bottom: 10px; }
+.f-style { color: #7a5c3e; } .f-shot { color: #4a6fa5; }
+.f-action { color: var(--fg); font-weight: 600; }
+.f-character { color: #2e7d5b; font-weight: 600; }
+.f-location { color: #8a6d3b; } .f-light { color: #a8752c; }
+.f-palette { color: #6b5b95; } .f-override { color: #b3261e; }
+@media (prefers-color-scheme: dark) {
+  .f-style { color: #d3b08c; } .f-shot { color: #9db8de; }
+  .f-character { color: #7fd0a6; } .f-location { color: #d6b171; }
+  .f-light { color: #e0b061; } .f-palette { color: #b3a4e0; }
+}
+
+/* ---- narration ---------------------------------------------------------- */
+.line { margin: 10px 0 14px; }
+.line textarea { font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
+                 padding: 9px 11px; }
+.chip.ok { color: #2e7d5b; border-color: #2e7d5b; }
+.chip.warn { color: #a8752c; border-color: #a8752c; }
+.chip.bad { color: #b3261e; border-color: #b3261e; }
+.bad-border { border-color: #b3261e; }

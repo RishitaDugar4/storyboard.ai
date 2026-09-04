@@ -9,7 +9,9 @@ OUT      := $(API)/out
 
 .PHONY: help venv up down api web migrate migration db-shell render-demo \
         render-preview render-final preflight demo-fixtures test test-api \
-        test-render clean-render bakeoff-fake stack-up stack-down stack-logs \
+        test-render test-ai ai-fixtures analyze storyboard storyboard-fake \
+        eval eval-fake user-add user-list worker dev dev-fake smoke \
+        clean-render bakeoff-fake stack-up stack-down stack-logs \
         deploy deploy-bootstrap deploy-logs deploy-ps deploy-backup
 
 help:
@@ -25,6 +27,15 @@ up: ## start postgres + redis in docker (app runs on the host)
 down: ## stop the docker dependencies
 	docker compose down
 
+dev: ## run the whole stack (db, redis, api, worker, web) — Ctrl-C stops it
+	@./scripts/dev.sh
+
+dev-fake: ## same, with fake providers (zero spend)
+	@FAKE=1 ./scripts/dev.sh
+
+smoke: ## drive the product end to end:  make smoke EMAIL=you@local PASS='...'
+	@./scripts/smoke.sh
+
 api: ## run the API on :8000 with reload
 	cd $(API) && set -a && . ../../.env && set +a && \
 		.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
@@ -37,6 +48,18 @@ migrate: ## apply migrations to the configured database
 
 migration: ## autogenerate a migration:  make migration m="add scenes"
 	cd $(API) && .venv/bin/alembic revision --autogenerate -m "$(m)"
+
+user-add: ## create an account:  make user-add email=zee@local name=Zee
+	cd $(API) && set -a && . ../../.env && set +a && \
+		.venv/bin/python -m app.cli user add $(email) "$(name)"
+
+user-list: ## list accounts
+	cd $(API) && set -a && . ../../.env && set +a && \
+		.venv/bin/python -m app.cli user list
+
+worker: ## run the arq worker (needs redis)
+	cd $(API) && set -a && . ../../.env && set +a && \
+		JOB_QUEUE=arq .venv/bin/arq app.jobs.worker.WorkerSettings
 
 db-shell: ## psql into the dev database
 	psql -d hbday_zee_dev
@@ -66,6 +89,38 @@ test: ## run all api tests (renderer + integration)
 
 test-render: ## renderer tests only (no database needed)
 	cd $(API) && .venv/bin/python -m pytest tests/test_render.py -q
+
+test-ai: ## AI contract tests (no network, no database)
+	cd $(API) && .venv/bin/python -m pytest tests/test_ai.py -q
+
+ai-fixtures: ## regenerate the golden AI fixtures
+	$(PY) $(API)/tools/make_ai_fixtures.py
+
+# $(abspath) resolves f against the repo root before we cd into apps/api,
+# so a path you typed from the repo root keeps working.
+analyze: ## analyse a story:  make analyze f=path/to/story.txt
+	@test -n "$(f)" || { echo "usage: make analyze f=path/to/story.txt"; exit 2; }
+	@test -f "$(abspath $(f))" || { echo "no such file: $(f)"; exit 2; }
+	cd $(API) && set -a && . ../../.env && set +a && \
+		.venv/bin/python -m app.ai.cli analyze $(abspath $(f))
+
+storyboard: ## storyboard a story:  make storyboard f=story.txt [len=90]
+	@test -n "$(f)" || { echo "usage: make storyboard f=path/to/story.txt"; exit 2; }
+	@test -f "$(abspath $(f))" || { echo "no such file: $(f)"; exit 2; }
+	cd $(API) && set -a && . ../../.env && set +a && \
+		.venv/bin/python -m app.ai.cli storyboard $(abspath $(f)) \
+			--length $(or $(len),90) $(if $(out),--out $(abspath $(out)),)
+
+eval: ## run the story corpus and report storyboard quality (~50c)
+	cd $(API) && set -a && . ../../.env && set +a && \
+		.venv/bin/python tools/eval_storyboards.py $(if $(only),--only $(only),)
+
+eval-fake: ## same, from fixtures, zero spend
+	cd $(API) && .venv/bin/python tools/eval_storyboards.py --fake
+
+storyboard-fake: ## storyboard from fixtures, zero spend
+	cd $(API) && .venv/bin/python -m app.ai.cli storyboard \
+		tests/fixtures/ai/lighthouse.txt --fake
 
 test-api: ## api integration tests (needs postgres + migrations)
 	cd $(API) && set -a && . ../../.env && set +a && \

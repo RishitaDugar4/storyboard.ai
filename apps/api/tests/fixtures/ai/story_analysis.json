@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0",
+  "title": "The Lighthouse Keeper",
+  "logline": "An ageing keeper turns a lighthouse lens by hand through a blackout storm so that eleven men she will never meet can find harbour.",
+  "tone": [
+    "wistful",
+    "spare",
+    "quietly heroic",
+    "elegiac"
+  ],
+  "setting_summary": "Corrow Point, a remote island lighthouse, across forty-one winters and culminating in one blacked-out night storm.",
+  "characters": [
+    {
+      "name": "Mara Halloran",
+      "aliases": [
+        "Mara",
+        "the keeper"
+      ],
+      "role": "protagonist",
+      "description_from_text": "Kept the light on Corrow Point for forty-one winters; seventy-three in the year of the blackout; writes the weather in a ledger nobody reads.",
+      "first_mention_excerpt": "For forty-one winters, Mara Halloran kept the light on Corrow Point burning."
+    },
+    {
+      "name": "The captain of the Bright Endeavour",
+      "aliases": [],
+      "role": "supporting",
+      "description_from_text": "Steered by a light that swung strangely, slower than it should, but never stopped.",
+      "first_mention_excerpt": "Their captain said afterwards that he had steered by a light that swung strangely."
+    },
+    {
+      "name": "The interviewer",
+      "aliases": [
+        "the girl"
+      ],
+      "role": "incidental",
+      "description_from_text": "A girl who came to interview her after the medal.",
+      "first_mention_excerpt": "she told the girl who came to interview her that the medal had it wrong"
+    }
+  ],
+  "locations": [
+    {
+      "name": "Corrow Point lighthouse",
+      "description_from_text": "Two hundred and eleven steps to the lamp room; a clockwork lens; a kitchen with one electric bulb.",
+      "interior": true
+    },
+    {
+      "name": "The sea off Corrow Point",
+      "description_from_text": "Flat grey in August, black and hammering in February, strange green calm before the worst.",
+      "interior": false
+    },
+    {
+      "name": "A hall in the town",
+      "description_from_text": "Where they gave her a medal the following spring.",
+      "interior": true
+    }
+  ],
+  "beats": [
+    {
+      "index": 0,
+      "summary": "Mara has kept the light for forty-one winters, unasked.",
+      "source_excerpt": "in all that time nobody ever asked her to",
+      "emotional_valence": "setup"
+    },
+    {
+      "index": 1,
+      "summary": "She learns the sea's moods like a language.",
+      "source_excerpt": "the flat grey patience of August, the black hammering of February",
+      "emotional_valence": "setup"
+    },
+    {
+      "index": 2,
+      "summary": "Her routine: the wick, the clockwork, a ledger nobody reads.",
+      "source_excerpt": "She wrote the weather in a ledger nobody read",
+      "emotional_valence": "setup"
+    },
+    {
+      "index": 3,
+      "summary": "At seventy-three, the island loses all power.",
+      "source_excerpt": "In the winter she turned seventy-three, the light went out.",
+      "emotional_valence": "rising"
+    },
+    {
+      "index": 4,
+      "summary": "She understands the ships cannot see her.",
+      "source_excerpt": "the ships out there could not see her",
+      "emotional_valence": "turn"
+    },
+    {
+      "index": 5,
+      "summary": "She climbs 211 steps in the dark with oil and matches.",
+      "source_excerpt": "Two hundred and eleven steps with a can of oil and a box of matches",
+      "emotional_valence": "rising"
+    },
+    {
+      "index": 6,
+      "summary": "She lights the old lamp by hand, as the first keeper did in 1868.",
+      "source_excerpt": "the way the first keeper had in 1868",
+      "emotional_valence": "rising"
+    },
+    {
+      "index": 7,
+      "summary": "She turns the lens with her own arms all night.",
+      "source_excerpt": "turning the lens with her own arms because the clockwork needed power she did not have",
+      "emotional_valence": "climax"
+    },
+    {
+      "index": 8,
+      "summary": "Her shoulders give out near four; she keeps turning, counting aloud.",
+      "source_excerpt": "counting rotations aloud to stay awake",
+      "emotional_valence": "climax"
+    },
+    {
+      "index": 9,
+      "summary": "The Bright Endeavour makes harbour at seven with eleven men.",
+      "source_excerpt": "The trawler Bright Endeavour made harbour at seven. Eleven men aboard.",
+      "emotional_valence": "resolution"
+    },
+    {
+      "index": 10,
+      "summary": "A medal in spring, which she says has it wrong.",
+      "source_excerpt": "the medal had it wrong. It was not brave, she said.",
+      "emotional_valence": "resolution"
+    },
+    {
+      "index": 11,
+      "summary": "She had simply never considered letting it go out.",
+      "source_excerpt": "She had simply never considered letting it go out.",
+      "emotional_valence": "resolution"
+    }
+  ]
+}

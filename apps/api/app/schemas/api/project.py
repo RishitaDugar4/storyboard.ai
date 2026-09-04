@@ -25,6 +25,7 @@ class ProjectUpdate(BaseModel):
     style_preset: str | None = Field(default=None, max_length=60)
     style_bible: dict | None = None
     default_model_key: str | None = Field(default=None, max_length=64)
+    narrator_voice_id: str | None = Field(default=None, max_length=40)
     allow_premium: bool | None = None
     budget_cents: int | None = Field(default=None, ge=0, le=1_000_000)
 
@@ -40,6 +41,7 @@ class ProjectRead(BaseModel):
     style_preset: str
     style_bible: dict | None
     default_model_key: str | None
+    narrator_voice_id: str | None
     allow_premium: bool
     budget_cents: int
     spent_cents: int

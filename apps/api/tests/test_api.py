@@ -9,15 +9,19 @@ import os
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
-os.environ.setdefault("APP_PASSPHRASE", "test-pass")
 os.environ.setdefault("SESSION_SECRET", "test-secret")
+os.environ.setdefault("AI_TEXT_PROVIDER", "fake")
 
-from app.config import get_settings          # noqa: E402
+TEST_EMAIL, TEST_PASS = "pytest-user@local", "pytest-pass"
+
+from app.auth import create_user               # noqa: E402
+from app.config import get_settings            # noqa: E402
+from app.db.models import User                 # noqa: E402
 from app.db.session import (dispose_engine, get_engine,   # noqa: E402
                             get_sessionmaker)
-from app.main import create_app               # noqa: E402
+from app.main import create_app                # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 
@@ -32,6 +36,19 @@ async def client():
 
 
 @pytest.fixture(autouse=True)
+async def account():
+    """Every test gets the same account, created once and reused."""
+    async with get_sessionmaker()() as s:
+        existing = (await s.execute(
+            select(User).where(User.email == TEST_EMAIL))).scalar_one_or_none()
+        if existing is None:
+            await create_user(s, email=TEST_EMAIL, display_name="Pytest",
+                              passphrase=TEST_PASS)
+            await s.commit()
+    yield
+
+
+@pytest.fixture(autouse=True)
 async def clean_database():
     """Truncate between tests, then drop the engine.
 
@@ -43,6 +60,7 @@ async def clean_database():
     """
     yield
     async with get_sessionmaker()() as s:
+        await s.execute(text("DELETE FROM jobs"))
         await s.execute(text("DELETE FROM projects"))
         await s.commit()
     await dispose_engine()
@@ -52,7 +70,7 @@ async def clean_database():
 
 async def _login(client) -> None:
     r = await client.post("/api/v1/auth/session",
-                          json={"passphrase": os.environ["APP_PASSPHRASE"]})
+                          json={"email": TEST_EMAIL, "passphrase": TEST_PASS})
     assert r.status_code == 204, r.text
 
 
@@ -78,15 +96,45 @@ async def test_me_requires_a_session(client):
 
 
 async def test_wrong_passphrase_is_rejected(client):
-    r = await client.post("/api/v1/auth/session", json={"passphrase": "nope"})
+    r = await client.post("/api/v1/auth/session",
+                          json={"email": TEST_EMAIL, "passphrase": "nope"})
     assert r.status_code == 401 and r.json()["code"] == "unauthorized"
+
+
+async def test_unknown_account_gives_the_same_error(client):
+    """The message must not distinguish 'no such account' from 'wrong
+    passphrase', or it enumerates who has an account here."""
+    a = await client.post("/api/v1/auth/session",
+                          json={"email": "nobody@local", "passphrase": "x"})
+    b = await client.post("/api/v1/auth/session",
+                          json={"email": TEST_EMAIL, "passphrase": "x"})
+    assert a.status_code == b.status_code == 401
+    assert a.json()["detail"] == b.json()["detail"]
+
+
+async def test_disabled_account_cannot_log_in(client):
+    async with get_sessionmaker()() as s:
+        u = (await s.execute(
+            select(User).where(User.email == TEST_EMAIL))).scalar_one()
+        u.is_active = False
+        await s.commit()
+    try:
+        r = await client.post("/api/v1/auth/session",
+                              json={"email": TEST_EMAIL, "passphrase": TEST_PASS})
+        assert r.status_code == 401
+    finally:
+        async with get_sessionmaker()() as s:
+            u = (await s.execute(
+                select(User).where(User.email == TEST_EMAIL))).scalar_one()
+            u.is_active = True
+            await s.commit()
 
 
 async def test_login_then_me(client):
     await _login(client)
     r = await client.get("/api/v1/me")
     assert r.status_code == 200
-    assert r.json()["email"] == get_settings().owner_email
+    assert r.json()["email"] == TEST_EMAIL
 
 
 async def test_logout_clears_the_session(client):

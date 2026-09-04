@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .db.session import dispose_engine
 from .errors import install_error_handlers
-from .routers import auth, health, projects
+from .routers import (auth, characters, health, jobs, narration,
+                      projects, stills, story)
 
 log = logging.getLogger("hbz")
 
@@ -47,6 +48,11 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(auth.me_router)
     app.include_router(projects.router)
+    app.include_router(story.router)
+    app.include_router(jobs.router)
+    app.include_router(characters.router)
+    app.include_router(stills.router)
+    app.include_router(narration.router)
     return app
 
 

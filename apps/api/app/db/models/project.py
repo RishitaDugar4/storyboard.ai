@@ -47,6 +47,13 @@ class Project(Base, UUIDPk, Timestamps):
                                               nullable=False)
     style_bible: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    #: Default narrator voice; a character with its own voice overrides it.
+    narrator_voice_id: Mapped[str | None] = mapped_column(String(40),
+                                                          nullable=True)
+    #: Blob key of the licensed music bed, mixed well under the narration.
+    music_track_key: Mapped[str | None] = mapped_column(String(500),
+                                                        nullable=True)
+
     #: Motion defaults. Premium spend is opt-in per project (ARCHITECTURE D5).
     default_model_key: Mapped[str | None] = mapped_column(String(64),
                                                           nullable=True)

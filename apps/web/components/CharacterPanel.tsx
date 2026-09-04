@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ApiError, type Character, charactersApi } from "@/lib/api";
+import { useEffect } from "react";
+import { ApiError, type Character, charactersApi, narrationApi } from "@/lib/api";
 
 export function CharacterPanel({ characters, onChange }: {
   characters: Character[];
@@ -11,6 +12,11 @@ export function CharacterPanel({ characters, onChange }: {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
+  const [voices, setVoices] = useState<string[]>([]);
+
+  useEffect(() => {
+    narrationApi.voices().then((v) => setVoices(v.items)).catch(() => {});
+  }, []);
 
   async function run(id: string, fn: () => Promise<unknown>) {
     setBusy(id); setError(null);
@@ -102,6 +108,28 @@ export function CharacterPanel({ characters, onChange }: {
             ) : (
               <p className="canon">{c.appearance_prompt}</p>
             )}
+            <div className="row" style={{ marginTop: 8, gap: 10 }}>
+              <label className="field">
+                <span className="muted small">voice</span>
+                <select
+                  value={c.voice_name ?? ""}
+                  disabled={busy !== null}
+                  onChange={(e) => run(c.id, () => charactersApi.patch(c.id, {
+                    voice: { voice_name: e.target.value },
+                  }))}
+                >
+                  <option value="">narrator&apos;s voice</option>
+                  {voices.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+              <span className="muted small">
+                {c.spoken_lines > 0
+                  ? `speaks ${c.spoken_lines} line${c.spoken_lines === 1 ? "" : "s"}` +
+                    (c.voice_name ? " — changing this re-records them" : "")
+                  : "speaks no lines yet"}
+              </span>
+            </div>
+
             <p className="muted small">
               {c.locked
                 ? "Frozen — this exact text goes into every prompt they appear in."

@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRef } from "react";
 import {
-  ApiError, type NarrationShot, type Preflight, type RenderRow,
-  narrationApi, rendersApi,
+  ApiError, type MusicState, type NarrationShot, type Preflight,
+  type RenderRow, musicApi, narrationApi, rendersApi,
 } from "@/lib/api";
 
 const FIT_TONE: Record<string, string> = {
@@ -22,15 +23,19 @@ export function NarrationPanel({ projectId, revision, onJob }: {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [watchingId, setWatchingId] = useState<string | null>(null);
+  const [music, setMusic] = useState<MusicState | null>(null);
+  const musicInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const [n, r] = await Promise.all([
+      const [n, r, m] = await Promise.all([
         narrationApi.list(projectId),
         rendersApi.list(projectId).catch(() => ({ items: [], total: 0 })),
+        musicApi.get(projectId).catch(() => null),
       ]);
       setShots(n.items);
       setRenders(r.items);
+      setMusic(m);
     } catch { setError("Could not load narration."); }
   }, [projectId]);
 
@@ -88,6 +93,38 @@ export function NarrationPanel({ projectId, revision, onJob }: {
 
       {error && <p className="err">{error}</p>}
 
+      <div className="row between music" data-testid="music">
+        <span className="muted small">
+          {music?.attached
+            ? `music: ${music.filename ?? "attached"} — mixed 24dB under the narration`
+            : "no music bed — the film will play with narration only"}
+        </span>
+        <div className="row">
+          {music?.url && (
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <audio src={music.url} controls style={{ height: 30 }} />
+          )}
+          <input
+            ref={musicInput} type="file" accept="audio/*" hidden
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) await run("music", () => musicApi.upload(projectId, f));
+            }}
+          />
+          <button className="chip" disabled={busy !== null}
+                  onClick={() => musicInput.current?.click()}>
+            {music?.attached ? "replace music" : "add music"}
+          </button>
+          {music?.attached && (
+            <button className="chip" disabled={busy !== null}
+                    onClick={() => run("music", () => musicApi.remove(projectId))}>
+              remove
+            </button>
+          )}
+        </div>
+      </div>
+
       {pre && (
         <div className={`board ${pre.ok ? "" : "bad-border"}`} style={{ marginTop: 12 }}>
           <strong>{pre.ok ? "Ready to render" : "Not ready"}</strong>
@@ -103,7 +140,7 @@ export function NarrationPanel({ projectId, revision, onJob }: {
       )}
 
       {watching?.video_url && (
-        <div className="board" style={{ marginTop: 14 }}>
+        <div className="board" style={{ marginTop: 14 }} data-testid="player">
           <div className="row between">
             <strong>{watching === latest ? "Latest render" : "Earlier render"}</strong>
             <span className="muted small">
@@ -133,7 +170,7 @@ export function NarrationPanel({ projectId, revision, onJob }: {
             {renders.length} renders — every version is kept, so you can compare
             a change against what it replaced.
           </p>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8 }} data-testid="render-history">
             {renders.map((r) => (
               <button
                 key={r.id}

@@ -28,6 +28,7 @@ for shots you choose not to animate. Provider-specific constraints (Veo's
 | **D10** | **The final render is a hybrid by default** — Ken Burns shots and generated clips concatenated in one timeline | Falls out of the Timeline abstraction for free, and is the mechanism that makes D1 and D5 real. | Two separate "stills film" and "motion film" products |
 | **D11** | **Provider bake-off before application development (M0.5)** | Every cost, latency, and quality number in this document is a guess until measured. The harness that measures them is standalone and disposable. | Choosing providers from marketing pages |
 | **D12** | **Generated audio from any provider is discarded by default** | Several models (Veo among them) emit audio that cannot be disabled and will invent dialogue colliding with the narrator. Ours is the only soundtrack. | Relying on providers for sound |
+| **D13** | **The event bus is Redis pub/sub whenever the queue is `arq`**, in-process only for the inline queue | Publisher and subscriber are *different processes*: handlers run in the worker, SSE subscribers in the API. An in-process bus published into a process nobody was listening to, so live updates never arrived in any real deployment. It went unnoticed because the inline queue used by most tests runs handlers inside the API, where a local bus happens to work. | A single in-process bus |
 
 ---
 
@@ -2010,6 +2011,25 @@ manual upload overrides, the per-clip render cache, or the cost gate.
 ---
 
 ## 14. Architectural risks
+
+**R0 — Two hazards the browser tests found that no unit test could.**
+Both were invisible to the Python suite because that suite runs in a
+configuration the deployed system never uses.
+
+*The event bus never crossed processes.* Handlers run in the arq worker; SSE
+subscribers live in the API. A per-process bus published into a process nobody
+was listening to, so live updates never arrived outside tests -- and the inline
+queue used by most tests runs handlers inside the API, where a local bus happens
+to work. *Mitigation:* Redis pub/sub whenever the queue is `arq` (D13), plus
+`tests/test_events_bus.py`, which publishes from a genuinely separate
+interpreter and asserts the API process receives it.
+
+*The test suite deleted real work.* `DELETE FROM projects` between tests ran
+against whatever `DATABASE_URL` pointed at, which during normal development is
+the development database -- so `make test` destroyed real stories, stills and
+renders. *Mitigation:* `tests/conftest.py` redirects to a `_test` database,
+creates and migrates it on demand, and asserts the name ends in `_test` so a
+misconfiguration halts the run rather than quietly clearing live data.
 
 **R1 — Provider quality variance and visual inconsistency.** Different models
 render motion, colour, and faces differently; a film cut from three providers

@@ -300,3 +300,35 @@ async def test_entity_events_carry_an_id_and_a_reason_not_a_body():
         got = await asyncio.wait_for(sub.__anext__(), timeout=1)
     assert got.type == "entity"
     assert set(got.data) == {"type", "id", "reason"}   # no entity body
+
+
+async def test_two_projects_with_the_same_story_do_not_collide(client):
+    """The same text pasted into two projects is two units of work.
+
+    Without the project in the idempotency key the second project silently
+    receives the first one's job and is never analysed -- a failure that
+    reports success and produces nothing.
+    """
+    a = await _project(client)
+    b = await _project(client)
+    for pid in (a, b):
+        await client.put(f"/api/v1/projects/{pid}/story", json={"raw_text": STORY})
+
+    first = await client.post(f"/api/v1/projects/{a}/story:analyze")
+    second = await client.post(f"/api/v1/projects/{b}/story:analyze")
+    assert first.json()["created"] is True
+    assert second.json()["created"] is True
+    assert first.json()["job_id"] != second.json()["job_id"]
+
+    await get_queue().drain()
+    for pid in (a, b):
+        assert (await client.get(f"/api/v1/projects/{pid}/analysis")).status_code == 200
+
+
+def test_idempotency_key_is_scoped_to_a_project():
+    from app.jobs.service import idempotency_key
+    p1, p2 = uuid.UUID(int=1), uuid.UUID(int=2)
+    assert idempotency_key(p1, "story.analyze", None, "same") != \
+           idempotency_key(p2, "story.analyze", None, "same")
+    assert idempotency_key(p1, "story.analyze", None, "same") == \
+           idempotency_key(p1, "story.analyze", None, "same")

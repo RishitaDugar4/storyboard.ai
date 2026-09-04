@@ -16,6 +16,7 @@ from arq import cron, func
 from arq.connections import RedisSettings
 
 from ..db.session import dispose_engine
+from .events import close_bus
 from .handlers import HANDLERS
 from .maintenance import cron_reap_stuck_jobs
 
@@ -38,6 +39,7 @@ FUNCTIONS = [func(_wrap(fn), name=kind.replace(".", "_"))
 
 
 async def on_shutdown(ctx) -> None:
+    await close_bus()
     await dispose_engine()
 
 

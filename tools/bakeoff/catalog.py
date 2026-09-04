@@ -269,7 +269,8 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
                   "Base is exactly 5 x $0.07, so flat per-second is "
                   "algebraically identical for every legal duration.",
         ),
-        typical_latency_s=120,
+        # Measured: 78.6s across two runs (docs/adr/001-bakeoff-results.md).
+        typical_latency_s=79,
         max_wait_s=1200,
         retention_hours=None,
         docs_url=_KLING_PAGE,
@@ -349,7 +350,8 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
             confidence=PriceConfidence.VERIFIED,
             notes="Model page: 768P $0.045/sec (6s = $0.27), 512P $0.017/sec.",
         ),
-        typical_latency_s=150,
+        # Measured: 90.7s on one run (docs/adr/001-bakeoff-results.md).
+        typical_latency_s=91,
         max_wait_s=1500,
         retention_hours=None,
         docs_url=_HAILUO_STD_PAGE,

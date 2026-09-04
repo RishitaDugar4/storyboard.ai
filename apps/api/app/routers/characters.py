@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from ..auth import CurrentUser, DbSession
-from ..db.models import Character, Project
+from sqlalchemy import func
+
+from ..db.models import Character, NarrationLine, Project
 from ..errors import DomainError, NotFound
 from ..services.character_service import (CharacterLocked, lock_character,
                                           unlock_character, unlock_impact,
@@ -22,10 +24,12 @@ class CharacterUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=80)
     role: str | None = Field(default=None, max_length=40)
     appearance: dict | None = None
+    #: {"voice_name": "Puck"} — narration lines whose speaker is this
+    #: character are then spoken in that voice instead of the narrator's.
     voice: dict | None = None
 
 
-def _read(c: Character, impact=None) -> dict:
+def _read(c: Character, impact=None, spoken_lines: int = 0) -> dict:
     out = {
         "id": str(c.id), "slug": c.slug, "name": c.name, "role": c.role,
         "appearance": c.appearance, "appearance_prompt": c.appearance_prompt,
@@ -33,6 +37,8 @@ def _read(c: Character, impact=None) -> dict:
         "locked": c.locked_at is not None,
         "locked_at": c.locked_at.isoformat() if c.locked_at else None,
         "reference_asset_id": str(c.reference_asset_id) if c.reference_asset_id else None,
+        "voice_name": (c.voice or {}).get("voice_name"),
+        "spoken_lines": spoken_lines,
     }
     if impact is not None:
         out["unlock_impact"] = {
@@ -63,7 +69,14 @@ async def list_characters(project_id: uuid.UUID, session: DbSession,
     rows = (await session.execute(
         select(Character).where(Character.project_id == project_id)
         .order_by(Character.sort_order))).scalars().all()
-    items = [_read(c, await unlock_impact(session, c)) for c in rows]
+    # How many narration lines this character actually speaks, so the voice
+    # picker can say whether choosing one changes anything.
+    counts = dict((await session.execute(
+        select(NarrationLine.speaker_slug, func.count())
+        .where(NarrationLine.project_id == project_id)
+        .group_by(NarrationLine.speaker_slug))).all())
+    items = [_read(c, await unlock_impact(session, c), counts.get(c.slug, 0))
+             for c in rows]
     return {"items": items, "total": len(items)}
 
 
@@ -74,6 +87,10 @@ async def patch_character(character_id: uuid.UUID, body: CharacterUpdate,
     try:
         c = await update_character(session, c,
                                    body.model_dump(exclude_unset=True))
+        if body.voice:
+            # Changing a voice makes that character's recorded lines stale, so
+            # they are re-spoken rather than left in the old voice.
+            await _invalidate_spoken_lines(session, c)
         if body.appearance or body.name:
             # The canon is embedded verbatim in every prompt featuring them,
             # so editing it makes exactly those stills stale.
@@ -83,6 +100,16 @@ async def patch_character(character_id: uuid.UUID, body: CharacterUpdate,
         raise DomainError(str(exc), code="character_locked",
                           status_code=409) from exc
     return _read(c, await unlock_impact(session, c))
+
+
+async def _invalidate_spoken_lines(session, c: Character) -> int:
+    lines = (await session.execute(
+        select(NarrationLine).where(
+            NarrationLine.project_id == c.project_id,
+            NarrationLine.speaker_slug == c.slug))).scalars().all()
+    for line in lines:
+        line.input_hash = None          # nothing can match, so audio is stale
+    return len(lines)
 
 
 @router.post("/characters/{character_id}:lock")

@@ -9,7 +9,7 @@ OUT      := $(API)/out
 
 .PHONY: help venv up down api web migrate migration db-shell render-demo \
         render-preview render-final preflight demo-fixtures test test-api \
-        test-render test-ai ai-fixtures analyze storyboard storyboard-fake \
+        test-render test-ai test-ui test-ui-headed ai-fixtures analyze storyboard storyboard-fake \
         eval eval-fake user-add user-list worker dev dev-fake dev-stop smoke \
         clean-render bakeoff-fake stack-up stack-down stack-logs \
         deploy deploy-bootstrap deploy-logs deploy-ps deploy-backup
@@ -96,6 +96,16 @@ test: ## run all api tests (renderer + integration)
 
 test-render: ## renderer tests only (no database needed)
 	cd $(API) && .venv/bin/python -m pytest tests/test_render.py -q
+
+test-ui: ## browser tests against a running stack (needs 'make dev-fake')
+	cd apps/web && BASE_URL=$(or $(base),http://localhost:3000) \
+		E2E_EMAIL=$(or $(email),rishita@local) \
+		E2E_PASS=$(or $(pass),beacon-nectar-fern-garnet) \
+		npx playwright test $(if $(only),$(only),)
+
+test-ui-headed: ## same, with a visible browser
+	cd apps/web && BASE_URL=$(or $(base),http://localhost:3000) \
+		npx playwright test --headed
 
 test-ai: ## AI contract tests (no network, no database)
 	cd $(API) && .venv/bin/python -m pytest tests/test_ai.py -q

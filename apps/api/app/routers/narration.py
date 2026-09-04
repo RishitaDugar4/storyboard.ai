@@ -3,15 +3,17 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, File, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from ..ai.registry import get_speech_port
 from ..auth import CurrentUser, DbSession
 from ..db.ids import uuid7
-from ..db.models import (Asset, JobStatus, NarrationLine, Project, Render,
-                         RenderProfile, Scene, Shot)
+from ..db.ids import uuid7
+from ..db.models import (Asset, AssetKind, AssetSource, JobStatus,
+                         NarrationLine, Project, Render, RenderProfile, Scene,
+                         Shot)
 from ..errors import DomainError, NotFound
 from ..jobs import get_queue
 from ..jobs import service as jobs
@@ -19,7 +21,7 @@ from ..render.timeline import Profile
 from ..schemas.api.story import JobAccepted
 from ..services.narration_service import audio_is_fresh, evaluate_fit
 from ..services.timeline_builder import build_timeline
-from ..storage import get_storage
+from ..storage import asset_key, get_storage
 
 router = APIRouter(prefix="/api/v1", tags=["narration"])
 
@@ -147,6 +149,71 @@ async def generate_all(project_id: uuid.UUID, session: DbSession,
     for kind, jid in queued:
         await get_queue().enqueue(kind, jid)
     return {"queued": len(queued), "lines": len(lines)}
+
+
+# ---- music ----------------------------------------------------------------
+MAX_MUSIC_BYTES = 30 * 1024 * 1024
+
+
+@router.post("/projects/{project_id}/music")
+async def upload_music(project_id: uuid.UUID, session: DbSession,
+                       user: CurrentUser, file: UploadFile = File(...)) -> dict:
+    """Attach a music bed.
+
+    Mixed roughly 24dB under the narration, with fades at both ends. Bring your
+    own file: generating music is out of scope, and a licence you already hold
+    is the only kind worth shipping in a gift.
+    """
+    project = await _owned(session, user, project_id)
+    data = await file.read()
+    if not data:
+        raise DomainError("the uploaded file is empty", code="validation_failed")
+    if len(data) > MAX_MUSIC_BYTES:
+        raise DomainError(
+            f"file is larger than {MAX_MUSIC_BYTES // 1024 // 1024}MB",
+            code="validation_failed")
+    if not (file.content_type or "").startswith("audio/"):
+        raise DomainError(f"expected audio, got {file.content_type or 'nothing'}",
+                          code="validation_failed")
+
+    aid = uuid7()
+    ext = (file.filename or "bed.mp3").rsplit(".", 1)[-1][:6] or "mp3"
+    key = asset_key(project.id, "music", aid, ext)
+    blob = await get_storage().put(key, data)
+    session.add(Asset(
+        id=aid, project_id=project.id, kind=AssetKind.AUDIO,
+        source=AssetSource.MANUAL, storage_key=key,
+        mime=file.content_type or "audio/mpeg", bytes=blob.bytes,
+        checksum=blob.checksum,
+        params={"filename": file.filename, "role": "music"}))
+    project.music_track_key = key
+    await session.flush()
+    return {"attached": True, "filename": file.filename,
+            "bytes": blob.bytes, "url": get_storage().url(key)}
+
+
+@router.delete("/projects/{project_id}/music")
+async def remove_music(project_id: uuid.UUID, session: DbSession,
+                       user: CurrentUser) -> dict:
+    project = await _owned(session, user, project_id)
+    project.music_track_key = None
+    await session.flush()
+    return {"attached": False}
+
+
+@router.get("/projects/{project_id}/music")
+async def get_music(project_id: uuid.UUID, session: DbSession,
+                    user: CurrentUser) -> dict:
+    project = await _owned(session, user, project_id)
+    if not project.music_track_key:
+        return {"attached": False, "url": None, "filename": None}
+    asset = (await session.execute(
+        select(Asset).where(Asset.storage_key == project.music_track_key)
+    )).scalar_one_or_none()
+    return {"attached": True,
+            "url": get_storage().url(project.music_track_key),
+            "filename": (asset.params or {}).get("filename") if asset else None,
+            "bytes": asset.bytes if asset else None}
 
 
 # ---- renders --------------------------------------------------------------

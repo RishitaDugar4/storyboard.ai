@@ -67,7 +67,12 @@ export function useProjectEvents(projectId: string | null): ProjectEvents {
       };
 
       source.addEventListener("job", onJob as EventListener);
-      source.addEventListener("entity", () => setRevision((r) => r + 1));
+      source.addEventListener("entity", () => {
+        setRevision((r) => r + 1);
+        // Entity events mean a job reached a terminal state; refetch rather
+        // than trusting that we also saw its final "job" event.
+        void refresh();
+      });
 
       source.onerror = () => {
         setConnected(false);
@@ -89,6 +94,16 @@ export function useProjectEvents(projectId: string | null): ProjectEvents {
   }, [projectId, refresh]);
 
   const activeJobs = jobs.filter((j) => ACTIVE_JOB_STATUSES.includes(j.status));
+
+  // While anything is in flight, poll as well as listen. A dropped or
+  // out-of-order SSE frame would otherwise leave a finished job showing as
+  // running forever, with no way for the UI to notice.
+  useEffect(() => {
+    if (activeJobs.length === 0) return;
+    const t = setInterval(() => void refresh(), 3000);
+    return () => clearInterval(t);
+  }, [activeJobs.length, refresh]);
+
   return { jobs, activeJobs, connected, revision, refresh };
 }
 

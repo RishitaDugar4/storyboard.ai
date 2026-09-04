@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db.session import dispose_engine
+from .jobs.events import close_bus
 from .errors import install_error_handlers
 from .routers import (auth, characters, health, jobs, narration,
                       projects, stills, story)
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     log.info("starting env=%s db=%s", settings.env,
              settings.database_url.rsplit("/", 1)[-1])
     yield
+    await close_bus()
     await dispose_engine()
 
 

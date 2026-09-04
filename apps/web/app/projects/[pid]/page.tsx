@@ -101,7 +101,8 @@ export default function ProjectPage({ params }: { params: Promise<{ pid: string 
 
       <div className="row tabs">
         {(["story", "cast", "stills", "film", "settings"] as const).map((t) => (
-          <button key={t} className={`chip ${tab === t ? "primary" : ""}`}
+          <button key={t} data-testid={`tab-${t}`}
+                  className={`chip ${tab === t ? "primary" : ""}`}
                   onClick={() => setTab(t)}>
             {t}
             {t === "cast" && characters.length > 0 && ` (${characters.length})`}

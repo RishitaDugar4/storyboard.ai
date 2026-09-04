@@ -35,10 +35,18 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def idempotency_key(kind: str, target_id: uuid.UUID | None,
-                    input_hash: str) -> str:
+def idempotency_key(project_id: uuid.UUID, kind: str,
+                    target_id: uuid.UUID | None, input_hash: str) -> str:
+    """Identity of a unit of work.
+
+    The project MUST be part of it. Without it, two projects whose inputs hash
+    the same -- the same story pasted twice, the same prompt for the same stock
+    shot -- collide, and the second silently receives the first one's job and is
+    never processed at all.
+    """
     return hashlib.sha256(
-        f"{kind}|{target_id or '-'}|{input_hash}".encode()).hexdigest()
+        f"{project_id}|{kind}|{target_id or '-'}|{input_hash}".encode()
+    ).hexdigest()
 
 
 @asynccontextmanager
@@ -65,7 +73,7 @@ async def enqueue(
     queued, running, or finished -- the caller should surface that one rather
     than making a second.
     """
-    key = idempotency_key(kind, target_id, input_hash)
+    key = idempotency_key(project_id, kind, target_id, input_hash)
     stmt = (insert(Job)
             .values(id=uuid7(), project_id=project_id, kind=kind,
                     target_type=target_type, target_id=target_id,

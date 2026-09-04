@@ -214,6 +214,13 @@ export const jobsApi = {
 // Characters and stills
 // ---------------------------------------------------------------------------
 
+export interface MusicState {
+  attached: boolean;
+  url: string | null;
+  filename: string | null;
+  bytes?: number | null;
+}
+
 export interface Character {
   id: string;
   slug: string;
@@ -227,6 +234,9 @@ export interface Character {
   locked: boolean;
   locked_at: string | null;
   reference_asset_id: string | null;
+  /** Narration lines whose speaker is this character speak in this voice. */
+  voice_name: string | null;
+  spoken_lines: number;
   unlock_impact?: {
     shots: number;
     stills: number;
@@ -291,7 +301,8 @@ export const charactersApi = {
   list: (pid: string) =>
     request<{ items: Character[]; total: number }>(`${p(pid)}/characters`),
   patch: (cid: string, changes: Partial<Pick<Character, "name" | "role">> &
-                                { appearance?: Record<string, unknown> }) =>
+                                { appearance?: Record<string, unknown>;
+                                  voice?: { voice_name: string } }) =>
     request<Character>(`/api/v1/characters/${cid}`, {
       method: "PATCH", body: JSON.stringify(changes),
     }),
@@ -408,6 +419,28 @@ export const narrationApi = {
   generateAll: (pid: string) =>
     request<{ queued: number; lines: number }>(
       `${p(pid)}/narration:generate_all`, { method: "POST" }),
+};
+
+export const musicApi = {
+  get: (pid: string) => request<MusicState>(`${p(pid)}/music`),
+  remove: (pid: string) =>
+    request<MusicState>(`${p(pid)}/music`, { method: "DELETE" }),
+  upload: async (pid: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${p(pid)}/music`, {
+      method: "POST", body: form, credentials: "include",
+    });
+    if (!res.ok) {
+      let problem: ProblemDetail = {
+        title: "Upload failed", status: res.status,
+        detail: res.statusText, code: `http_${res.status}`,
+      };
+      try { problem = { ...problem, ...(await res.json()) }; } catch { /* */ }
+      throw new ApiError(problem);
+    }
+    return (await res.json()) as { attached: boolean; filename: string };
+  },
 };
 
 export const rendersApi = {

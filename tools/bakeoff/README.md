@@ -45,8 +45,8 @@ to run** — `--preflight` reports anything missing, and a model whose adapter h
 no credentials is refused rather than silently skipped.
 
 ```bash
-export FAL_KEY="5c9728e1-27cd-4408-b90d-6862aac60453:6fe50c1029dc9b9ee13196b30b4b3901"           # fal.ai   → Kling, Hailuo, Wan  (Dashboard → Keys)
-export GEMINI_API_KEY="AQ.Ab8RN6KDtqR5ZPTwWWudKqydLqiiXqEc-K3PL_qWwZOA1cOHqQ"    # Google   → Veo   (aistudio.google.com/apikey)
+export FAL_KEY="..."           # fal.ai   → Kling, Hailuo, Wan  (Dashboard → Keys)
+export GEMINI_API_KEY="..."    # Google   → Veo   (aistudio.google.com/apikey)
 
 # only if you enable the EXPERIMENTAL task_api models:
 export RUNWAY_API_KEY="..."

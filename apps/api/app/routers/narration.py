@@ -125,7 +125,8 @@ async def generate_audio(line_id: uuid.UUID, session: DbSession,
         target_type="narration_line", target_id=line.id)
     await session.commit()
     if created or job.status == JobStatus.QUEUED:
-        await get_queue().enqueue("narration.tts", job.id)
+        await get_queue().enqueue("narration.tts", job.id,
+                                  attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind="narration.tts",
                        status=str(job.status), created=created)
 
@@ -144,10 +145,10 @@ async def generate_all(project_id: uuid.UUID, session: DbSession,
             input_hash=f"{line.id}:{hash(line.text)}:{line.delivery}",
             target_type="narration_line", target_id=line.id)
         if created or job.status == JobStatus.QUEUED:
-            queued.append((job.kind, job.id))
+            queued.append((job.kind, job.id, job.attempt))
     await session.commit()
-    for kind, jid in queued:
-        await get_queue().enqueue(kind, jid)
+    for kind, jid, attempt in queued:
+        await get_queue().enqueue(kind, jid, attempt=attempt)
     return {"queued": len(queued), "lines": len(lines)}
 
 
@@ -264,7 +265,8 @@ async def create_render(project_id: uuid.UUID, body: RenderRequest,
         input_hash=timeline.hash(), target_type="render", target_id=render.id)
     await session.commit()
     if created or job.status == JobStatus.QUEUED:
-        await get_queue().enqueue("render.preview", job.id)
+        await get_queue().enqueue("render.preview", job.id,
+                                  attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind="render.preview",
                        status=str(job.status), created=created)
 

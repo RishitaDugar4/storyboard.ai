@@ -84,14 +84,10 @@ async def retry_job(job_id: uuid.UUID, session: DbSession,
     job = await _owned_job(session, user, job_id)
     if job.status in ACTIVE:
         return {"requeued": False, "reason": "job is still active"}
-    job.status = JobStatus.QUEUED
-    job.error_code = job.error_detail = None
-    job.finished_at = None
-    job.attempt = 0                       # an explicit retry is a fresh start
-    job.message = "requeued"
-    job.queued_at = jobs.now()
+    if not jobs.revive(job):
+        return {"requeued": False, "reason": f"job is {job.status}"}
     await session.commit()
-    await get_queue().enqueue(job.kind, job.id)
+    await get_queue().enqueue(job.kind, job.id, attempt=job.attempt)
     return {"requeued": True, "job_id": str(job.id)}
 
 

@@ -215,7 +215,8 @@ async def generate_still(shot_id: uuid.UUID, body: GenerateStill,
         target_type="shot", target_id=shot.id, payload={"n": body.n})
     await session.commit()
     if created or job.status == JobStatus.QUEUED:
-        await get_queue().enqueue("asset.image", job.id)
+        await get_queue().enqueue("asset.image", job.id,
+                                  attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind="asset.image",
                        status=str(job.status), created=created)
 

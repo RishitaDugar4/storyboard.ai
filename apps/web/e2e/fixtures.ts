@@ -37,8 +37,12 @@ export async function jobsSettle(page: Page, timeout = 90_000) {
   // Give a job a moment to appear, or "quiet" may just mean "not started yet".
   await page.waitForTimeout(1200);
   while (Date.now() < deadline) {
-    const active = await drawer.locator(".job.running, .job.queued").count();
-    if (active === 0) return;
+    // From the drawer's own count, not from the rows it happens to be
+    // showing: a minimized drawer renders no rows, and counting those would
+    // make "collapsed" indistinguishable from "finished".
+    const attr = await drawer.getAttribute("data-active");
+    if (attr === null) return;          // drawer gone: no jobs at all
+    if (Number(attr) === 0) return;
     await page.waitForTimeout(1500);
   }
   throw new Error("jobs did not settle in time");

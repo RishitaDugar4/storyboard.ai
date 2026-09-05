@@ -108,7 +108,7 @@ async def requeue_stranded_jobs(session: AsyncSession | None = None) -> int:
         for job in stranded:
             log.warning("requeueing stranded job %s (%s), queued %s",
                         job.id, job.kind, job.queued_at.isoformat())
-            await queue.enqueue(job.kind, job.id)
+            await queue.enqueue(job.kind, job.id, attempt=job.attempt)
             # Move the clock forward so a job the broker is genuinely holding
             # is not re-pushed every single minute.
             job.queued_at = jobs.now()

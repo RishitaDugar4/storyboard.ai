@@ -361,3 +361,27 @@ async def test_character_appearance_can_be_edited_while_unlocked(client):
     assert r.status_code == 200
     # The canon is re-rendered so the preview matches what a prompt would use.
     assert "close-cropped silver" in r.json()["appearance_prompt"]
+
+
+def test_a_half_copied_fal_key_is_named_as_such():
+    """fal answers a malformed key with a 401 that blames the application.
+
+    "Cannot access application fal-ai/flux. Authentication is required" reads
+    like a billing or permissions problem, so the operator goes looking at
+    their fal account instead of at the key they pasted.
+    """
+    from app.ai.adapters.fal_image import FalImageAdapter
+    from app.ai.ports import AIError, AIErrorKind
+
+    with pytest.raises(AIError) as caught:
+        FalImageAdapter("5c9728deadbeefcafe0123456789ac60")   # no colon
+    assert caught.value.kind is AIErrorKind.AUTH
+    assert caught.value.code == "malformed_key"
+    assert "key-id" in str(caught.value)
+
+    with pytest.raises(AIError) as missing:
+        FalImageAdapter("")
+    assert missing.value.code == "missing_key"
+
+    # A well-formed key is accepted without a network call.
+    FalImageAdapter("11111111-2222-3333-4444-555555555555:" + "a" * 32)

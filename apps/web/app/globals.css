@@ -85,6 +85,21 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
         padding: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.14); z-index: 40; }
 .jobs header { display: flex; align-items: center; gap: 7px; font-size: 12px;
                color: var(--muted); margin-bottom: 10px; }
+/* Pushed to the right edge of the header so the live dot keeps its place. */
+.jobs-toggle { margin-left: auto; border: none; background: none; padding: 0 4px;
+               color: var(--muted); font-size: 17px; line-height: 1;
+               border-radius: 6px; }
+.jobs-toggle:hover { color: var(--fg); background: var(--bg); }
+/* Collapsed: only the pill, so the drawer stops covering the page corner. */
+.jobs.minimized { padding: 0; border: none; background: none; box-shadow: none; }
+.jobs-pill { display: flex; align-items: center; gap: 7px; font-size: 12px;
+             color: var(--muted); padding: 7px 13px; border-radius: 999px;
+             border: 1px solid var(--line); background: var(--card);
+             box-shadow: 0 8px 30px rgba(0,0,0,.14); }
+.jobs-pill:hover { color: var(--fg); }
+/* A failure must still be visible while collapsed -- a minimized drawer is a
+   request for less noise, not for less news. */
+.jobs-pill.has-failure { color: #b3261e; border-color: #b3261e; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .dot.live { background: #2e9e5b; }
 .job { border-top: 1px solid var(--line); padding: 9px 0; font-size: 13px; }

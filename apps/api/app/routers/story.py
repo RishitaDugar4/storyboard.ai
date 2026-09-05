@@ -41,7 +41,7 @@ async def _accept(session, project: Project, kind: str, input_hash: str,
     # strand the job forever, and re-enqueuing is harmless: claim() is atomic,
     # so a duplicate delivery finds nothing to take.
     if created or job.status == JobStatus.QUEUED:
-        await get_queue().enqueue(kind, job.id)
+        await get_queue().enqueue(kind, job.id, attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind=kind, status=str(job.status),
                        created=created)
 

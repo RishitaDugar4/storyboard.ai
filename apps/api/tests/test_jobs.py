@@ -332,3 +332,74 @@ def test_idempotency_key_is_scoped_to_a_project():
            idempotency_key(p2, "story.analyze", None, "same")
     assert idempotency_key(p1, "story.analyze", None, "same") == \
            idempotency_key(p1, "story.analyze", None, "same")
+
+
+# ---- retries actually reach the broker ------------------------------------
+def test_the_broker_key_changes_with_the_attempt():
+    """The bug this guards: arq refuses a _job_id it still holds a result for,
+    and it holds them for keep_result (an hour). A key fixed for the life of a
+    job therefore makes the first attempt the only one -- every requeue is
+    accepted by us and silently dropped by the broker, and the row sits in
+    `queued` until someone reads Redis."""
+    from app.jobs.queue import ArqQueue
+
+    class Recorder(ArqQueue):
+        def __init__(self):
+            super().__init__("redis://unused")
+            self.ids: list[str] = []
+
+        async def _pool(self):
+            outer = self
+
+            class FakeRedis:
+                async def enqueue_job(self, _fn, _arg, *, _defer_by, _job_id):
+                    outer.ids.append(_job_id)
+            return FakeRedis()
+
+    async def run():
+        q = Recorder()
+        jid = uuid7()
+        for attempt in (0, 1, 2):
+            await q.enqueue("narration.tts", jid, attempt=attempt)
+        # Same attempt twice still de-duplicates: that is what the key is for.
+        await q.enqueue("narration.tts", jid, attempt=2)
+        return q.ids
+
+    import asyncio
+    ids = asyncio.run(run())
+    assert len(set(ids)) == 3, f"attempts collapsed onto one key: {ids}"
+    assert ids[2] == ids[3]
+
+
+async def test_a_failed_job_can_be_retried_without_reusing_a_broker_key(client):
+    """An explicit retry gets a fresh budget, not a rewritten history: the
+    attempt counter has to keep rising or the requeue is indistinguishable
+    from the delivery that already failed."""
+    pid = await _project(client)
+    async with get_sessionmaker()() as s:
+        job, _ = await jobs.enqueue(s, project_id=uuid.UUID(pid),
+                                    kind="story.analyze", input_hash="retry-me")
+        await s.commit()
+        await jobs.claim(s, job.id)                    # attempt -> 1
+        job = await s.get(Job, job.id)
+        await jobs.fail(s, job, "quota:rate_limited", "429")
+        assert job.status is JobStatus.FAILED
+
+        spent = job.attempt
+        assert jobs.revive(job) is True
+        assert job.status is JobStatus.QUEUED
+        assert job.attempt == spent, "retry must not rewind the attempt counter"
+        assert job.max_attempts == spent + jobs.RETRY_ATTEMPTS
+        assert job.error_code is None
+
+
+async def test_a_running_job_is_not_restarted_by_a_second_click(client):
+    pid = await _project(client)
+    async with get_sessionmaker()() as s:
+        job, _ = await jobs.enqueue(s, project_id=uuid.UUID(pid),
+                                    kind="story.analyze", input_hash="busy")
+        await s.commit()
+        await jobs.claim(s, job.id)
+        job = await s.get(Job, job.id)
+        assert jobs.revive(job) is False
+        assert job.status is JobStatus.RUNNING

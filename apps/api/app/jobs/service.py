@@ -147,6 +147,34 @@ async def fail(session: AsyncSession, job: Job, code: str, detail: str,
         pass
 
 
+#: Attempts granted by an explicit retry, on top of whatever the job has
+#: already spent. Budget, not history: the attempt counter has to keep rising
+#: or the broker cannot tell one delivery from another (see queue.py).
+RETRY_ATTEMPTS = 3
+
+
+def revive(job: Job) -> bool:
+    """Reset a terminal job so the same request can run it again.
+
+    Returns False for a job that is already queued or running -- a second
+    click should join the work in flight, not restart it.
+
+    The attempt counter is deliberately left alone and the budget extended
+    instead. Zeroing it would read as a fresh start, but it would also hand
+    the broker a key it has already seen, and the requeue would be accepted
+    here and dropped there.
+    """
+    if job.status in ACTIVE:
+        return False
+    job.status = JobStatus.QUEUED
+    job.error_code = job.error_detail = None
+    job.finished_at = None
+    job.max_attempts = job.attempt + RETRY_ATTEMPTS
+    job.message = "requeued"
+    job.queued_at = now()
+    return True
+
+
 async def notify_entity(project_id: uuid.UUID, entity: str,
                         entity_id: uuid.UUID | None, reason: str) -> None:
     """Tell listeners something changed so they refetch it."""

@@ -69,7 +69,20 @@ class FalImageAdapter:
                  *, timeout_s: float = 180.0, poll_s: float = 2.0) -> None:
         import httpx
         if not api_key:
-            raise AIError(AIErrorKind.AUTH, "missing_key", "FAL_KEY is not set")
+            raise AIError(AIErrorKind.AUTH, "missing_key",
+                          "FAL_KEY is not set. Create one at "
+                          "https://fal.ai/dashboard/keys and put it in .env")
+        if ":" not in api_key:
+            # fal keys are "<key-id>:<key-secret>". Sending half of one earns a
+            # 401 whose text blames the *application* -- "Cannot access
+            # application fal-ai/flux" -- which reads like a permissions or
+            # billing problem and sends you looking in the wrong place.
+            raise AIError(
+                AIErrorKind.AUTH, "malformed_key",
+                f"FAL_KEY does not look like a fal key: expected "
+                f"'<key-id>:<key-secret>', got {len(api_key)} characters with "
+                f"no colon. Copy the whole key from "
+                f"https://fal.ai/dashboard/keys")
         self.model = model
         self._poll_s = poll_s
         self._client = httpx.AsyncClient(

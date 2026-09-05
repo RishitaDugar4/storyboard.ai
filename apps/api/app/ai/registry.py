@@ -40,6 +40,13 @@ def get_image_port():
         f"unknown AI_IMAGE_PROVIDER {provider!r}; expected one of: fal, fake")
 
 
+#: Requests per minute we allow ourselves for speech, below the provider's own
+#: ceiling. Gemini's Tier 1 TTS limit is 10/min and `narration:generate_all`
+#: fans out one job per line, so the default leaves headroom for a retry or a
+#: manual regenerate landing in the same window. 0 disables pacing.
+DEFAULT_SPEECH_RPM = 8
+
+
 @lru_cache(maxsize=1)
 def get_speech_port():
     provider = os.getenv("AI_SPEECH_PROVIDER", "gemini").lower()
@@ -48,11 +55,27 @@ def get_speech_port():
         return FakeSpeechAdapter()
     if provider in ("gemini", "google"):
         from .adapters.gemini_speech import DEFAULT_MODEL, GeminiSpeechAdapter
-        return GeminiSpeechAdapter(
+        port = GeminiSpeechAdapter(
             os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY", ""),
             model=os.getenv("AI_SPEECH_MODEL", DEFAULT_MODEL))
+        return _paced(port, "speech", os.getenv("AI_SPEECH_RPM"),
+                      DEFAULT_SPEECH_RPM)
     raise ValueError(
         f"unknown AI_SPEECH_PROVIDER {provider!r}; expected: gemini, fake")
+
+
+def _paced(port, capability: str, rpm_env: str | None, default_rpm: int):
+    """Wrap a port in the shared rate limiter, unless it is switched off.
+
+    Keyed by provider and model because quotas are per model: pacing on a
+    shared counter would throttle the text model on the speech model's traffic.
+    """
+    rpm = default_rpm if rpm_env is None else int(rpm_env)
+    if rpm <= 0:
+        return port
+    from .ratelimit import RateLimitedSpeech, RateLimiter
+    return RateLimitedSpeech(
+        port, RateLimiter(f"{capability}:{port.provider}:{port.model}", rpm))
 
 
 def reset() -> None:

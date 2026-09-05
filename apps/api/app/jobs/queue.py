@@ -21,7 +21,7 @@ Handler = Callable[[uuid.UUID], Awaitable[None]]
 
 class JobQueue(Protocol):
     async def enqueue(self, kind: str, job_id: uuid.UUID,
-                      defer_s: float = 0.0) -> None: ...
+                      defer_s: float = 0.0, attempt: int = 0) -> None: ...
     async def close(self) -> None: ...
 
 
@@ -38,7 +38,8 @@ class InlineQueue:
         self._tasks: set[asyncio.Task] = set()
 
     async def enqueue(self, kind: str, job_id: uuid.UUID,
-                      defer_s: float = 0.0) -> None:
+                      defer_s: float = 0.0, attempt: int = 0) -> None:
+        del attempt                     # no broker, so nothing to key on
         handler = self._handlers.get(kind)
         if handler is None:
             raise KeyError(f"no handler registered for job kind {kind!r}")
@@ -96,7 +97,7 @@ class ArqQueue:
         return self._redis
 
     async def enqueue(self, kind: str, job_id: uuid.UUID,
-                      defer_s: float = 0.0) -> None:
+                      defer_s: float = 0.0, attempt: int = 0) -> None:
         redis = await self._pool()
         await redis.enqueue_job(
             kind.replace(".", "_"), str(job_id),
@@ -104,7 +105,16 @@ class ArqQueue:
             # arq de-duplicates on this; the database UNIQUE on
             # idempotency_key is the real guard, this just avoids the round
             # trip when the same job is enqueued twice in quick succession.
-            _job_id=f"{kind}:{job_id}",
+            #
+            # The attempt is part of the key, and must be. arq refuses a
+            # _job_id it still holds a result for, and it holds results for
+            # keep_result (an hour). A key fixed for the life of the job
+            # therefore makes the FIRST attempt the only one: every requeue --
+            # a retryable failure, the stranded-job sweep, the Retry button --
+            # is accepted by us and silently dropped by the broker, and the row
+            # sits in `queued` until someone notices. Per attempt, the dedup
+            # still does its job within an attempt and retries get through.
+            _job_id=f"{kind}:{job_id}:{attempt}",
         )
 
     async def close(self) -> None:

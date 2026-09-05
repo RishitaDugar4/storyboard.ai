@@ -379,3 +379,89 @@ def test_extract_json_survives_model_chatter(raw, expected):
 def test_extract_json_still_fails_on_actual_garbage():
     with pytest.raises(json.JSONDecodeError):
         gem.extract_json("there is no document here")
+
+
+# ---- rate limiting --------------------------------------------------------
+async def test_limiter_admits_up_to_the_limit_without_waiting():
+    from app.ai.ratelimit import RateLimiter
+    lim = RateLimiter("test:burst", limit=3, window_s=60, redis_url=None)
+    for _ in range(3):
+        assert await lim.acquire() == pytest.approx(0, abs=0.05)
+
+
+async def test_limiter_makes_the_next_caller_wait_for_the_window():
+    """The eleventh call is the one that earned the 429; here it waits."""
+    from app.ai.ratelimit import RateLimiter
+    lim = RateLimiter("test:wait", limit=2, window_s=0.4, redis_url=None)
+    await lim.acquire()
+    await lim.acquire()
+    waited = await lim.acquire()
+    assert waited > 0.2, "third call should have been held for the window"
+
+
+async def test_limiter_slides_rather_than_resetting_on_a_boundary():
+    """A fixed bucket would let 2 through at the end of one window and 2 more
+    at the start of the next -- 4 inside one real window, which is the bug."""
+    from app.ai.ratelimit import RateLimiter
+    import asyncio
+    lim = RateLimiter("test:slide", limit=2, window_s=0.5, redis_url=None)
+    await lim.acquire()
+    await asyncio.sleep(0.3)
+    await lim.acquire()
+    assert await lim.acquire() > 0.1
+
+
+async def test_a_wait_longer_than_the_cap_surfaces_as_our_own_quota_error():
+    from app.ai.adapters.fakes import FakeSpeechAdapter
+    from app.ai.ratelimit import RateLimitedSpeech, RateLimiter
+    lim = RateLimiter("test:cap", limit=1, window_s=60,
+                      max_wait_s=0.05, redis_url=None)
+    port = RateLimitedSpeech(FakeSpeechAdapter(), lim)
+    await port.synthesize(text="one", voice="Kore")
+    with pytest.raises(AIError) as err:
+        await port.synthesize(text="two", voice="Kore")
+    assert err.value.kind is AIErrorKind.QUOTA
+    # Named for us, not for the provider: nobody should go quota-hunting in
+    # Google's console for a limit this process imposed.
+    assert err.value.code == "local_rate_limit"
+    assert err.value.retryable
+
+
+async def test_the_decorator_is_transparent():
+    from app.ai.adapters.fakes import FakeSpeechAdapter
+    from app.ai.ratelimit import RateLimitedSpeech, RateLimiter
+    inner = FakeSpeechAdapter()
+    port = RateLimitedSpeech(inner, RateLimiter("test:pass", limit=5,
+                                                redis_url=None))
+    assert (port.model, port.provider) == (inner.model, inner.provider)
+    assert port.voices() == inner.voices()
+    speech, usage = await port.synthesize(text="hello", voice="Kore",
+                                          style="warmly")
+    expected, _ = await inner.synthesize(text="hello", voice="Kore",
+                                         style="warmly")
+    assert speech.duration_ms == expected.duration_ms
+
+
+def test_pacing_is_configurable_and_can_be_switched_off(monkeypatch):
+    from app.ai import registry
+    from app.ai.adapters.fakes import FakeSpeechAdapter
+    from app.ai.ratelimit import RateLimitedSpeech
+    port = FakeSpeechAdapter()
+    assert registry._paced(port, "speech", "0", 8) is port
+    paced = registry._paced(port, "speech", None, 8)
+    assert isinstance(paced, RateLimitedSpeech)
+    assert paced._limiter.limit == 8
+    assert registry._paced(port, "speech", "3", 8)._limiter.limit == 3
+
+
+def test_the_pacing_key_separates_models():
+    """Quotas are per model; one counter would throttle text on speech."""
+    from app.ai import registry
+    from app.ai.adapters.fakes import FakeSpeechAdapter
+
+    class Other(FakeSpeechAdapter):
+        model = "gemini-2.5-pro-preview-tts"
+
+    a = registry._paced(FakeSpeechAdapter(), "speech", "8", 8)
+    b = registry._paced(Other(), "speech", "8", 8)
+    assert a._limiter.key != b._limiter.key

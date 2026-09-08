@@ -1,11 +1,23 @@
 :root {
-  --bg: #fbfaf8; --fg: #16151a; --muted: #6b6875;
-  --line: #e6e3dd; --card: #ffffff; --accent: #7a5c3e;
+  /* Ocean: white surfaces floating on a page tinted the colour of shallow
+     water, with a deep blue carrying every interactive edge. */
+  --bg: #eff6fb; --fg: #0c1f2e; --muted: #526877;
+  --line: #d2e2ee; --card: #ffffff; --accent: #0369a1;
+  --accent-soft: #e2f0fa; --accent-strong: #024e7a;
+  /* Status colours stay off the blue axis on purpose: a green that has drifted
+     blue no longer reads as "good", it reads as another accent. */
+  --danger: #c0261c; --ok: #16794f; --warn: #9a6b12;
+  --shadow: rgba(8, 47, 73, .16);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #121114; --fg: #ecebe8; --muted: #9a96a2;
-    --line: #2a2830; --card: #1a181d; --accent: #d3b08c;
+    --bg: #071726; --fg: #e6f0f7; --muted: #8ea7ba;
+    --line: #17364d; --card: #0d2237; --accent: #56b3e8;
+    --accent-soft: #10314a; --accent-strong: #7cc6f0;
+    /* Lightened for legibility: the light-mode red and green are close to
+       black against deep water. */
+    --danger: #ff7a6e; --ok: #4cc38a; --warn: #e0b061;
+    --shadow: rgba(0, 0, 0, .45);
   }
 }
 * { box-sizing: border-box; }
@@ -23,6 +35,18 @@ input, button {
 }
 button { cursor: pointer; border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Excluding .primary: a filled chip tinted pale on hover would put its white
+   label on a near-white ground and vanish. It darkens instead. */
+button:not(:disabled):not(.primary):hover { border-color: var(--accent);
+                                            background: var(--accent-soft); }
+.chip.primary:hover { background: var(--accent-strong);
+                      border-color: var(--accent-strong); }
+/* There was no visible focus at all before, which makes the workspace hard to
+   drive from the keyboard. :focus-visible keeps it off mouse clicks. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:focus, textarea:focus, select:focus { outline: none;
+                                            border-color: var(--accent);
+                                            box-shadow: 0 0 0 3px var(--accent-soft); }
 .row { display: flex; gap: 10px; }
 .row > input { flex: 1; }
 ul.projects { list-style: none; padding: 0; margin: 24px 0 0; }
@@ -35,7 +59,7 @@ ul.projects li {
   font-size: 12px; color: var(--muted); border: 1px solid var(--line);
   border-radius: 999px; padding: 2px 10px; white-space: nowrap;
 }
-.err { color: #b3261e; margin-top: 12px; }
+.err { color: var(--danger); margin-top: 12px; }
 .empty { color: var(--muted); border: 1px dashed var(--line);
          border-radius: 10px; padding: 28px; text-align: center; }
 
@@ -52,7 +76,7 @@ textarea {
 .row { align-items: center; flex-wrap: wrap; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
-.over { color: #b3261e; font-weight: 600; }
+.over { color: var(--danger); font-weight: 600; }
 
 ol.stepper { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0 0 26px;
              flex-wrap: wrap; }
@@ -64,7 +88,10 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
 .chip { font-size: 12px; border: 1px solid var(--line); border-radius: 999px;
         padding: 3px 10px; background: var(--card); color: var(--muted);
         cursor: pointer; }
-.chip.primary { color: var(--fg); border-color: var(--accent); }
+/* The selected tab is filled rather than merely outlined: at 12px an accent
+   border alone is easy to miss against the other chips. */
+.chip.primary { color: var(--card); background: var(--accent);
+                border-color: var(--accent); }
 .chip.hot { color: var(--accent); border-color: var(--accent); cursor: default; }
 
 .board { border: 1px solid var(--line); border-radius: 12px; padding: 18px;
@@ -82,7 +109,7 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
 /* ---- job drawer --------------------------------------------------------- */
 .jobs { position: fixed; right: 20px; bottom: 20px; width: 330px; max-width: 88vw;
         border: 1px solid var(--line); border-radius: 12px; background: var(--card);
-        padding: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.14); z-index: 40; }
+        padding: 12px; box-shadow: 0 8px 30px var(--shadow); z-index: 40; }
 .jobs header { display: flex; align-items: center; gap: 7px; font-size: 12px;
                color: var(--muted); margin-bottom: 10px; }
 /* Pushed to the right edge of the header so the live dot keeps its place. */
@@ -95,13 +122,13 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
 .jobs-pill { display: flex; align-items: center; gap: 7px; font-size: 12px;
              color: var(--muted); padding: 7px 13px; border-radius: 999px;
              border: 1px solid var(--line); background: var(--card);
-             box-shadow: 0 8px 30px rgba(0,0,0,.14); }
+             box-shadow: 0 8px 30px var(--shadow); }
 .jobs-pill:hover { color: var(--fg); }
 /* A failure must still be visible while collapsed -- a minimized drawer is a
    request for less noise, not for less news. */
-.jobs-pill.has-failure { color: #b3261e; border-color: #b3261e; }
+.jobs-pill.has-failure { color: var(--danger); border-color: var(--danger); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.dot.live { background: #2e9e5b; }
+.dot.live { background: var(--ok); }
 .job { border-top: 1px solid var(--line); padding: 9px 0; font-size: 13px; }
 .job:first-of-type { border-top: none; }
 .job-row { display: flex; justify-content: space-between; gap: 10px; }
@@ -109,9 +136,9 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
        overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent);
          transition: width .35s ease; }
-.job.failed .job-row { color: #b3261e; }
+.job.failed .job-row { color: var(--danger); }
 .job-error { margin-top: 6px; font-size: 12px; }
-.job-error code { color: #b3261e; }
+.job-error code { color: var(--danger); }
 .job-error p { margin: 4px 0 6px; color: var(--muted); }
 .job-error button { padding: 3px 10px; font-size: 12px; }
 
@@ -131,7 +158,7 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
          display: flex; align-items: center; justify-content: center; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .badge { position: absolute; top: 6px; left: 6px; font-size: 11px;
-         padding: 1px 7px; border-radius: 999px; background: #b3261e;
+         padding: 1px 7px; border-radius: 999px; background: var(--danger);
          color: #fff; }
 .badge.ok { background: var(--accent); color: var(--bg); }
 .shotbody .action { margin: 8px 0; font-size: 14px; }
@@ -147,25 +174,28 @@ ol.stepper li.done { color: var(--bg); background: var(--accent);
              border: 1px solid var(--line); background: var(--bg); }
 .inspector .prompt { font-size: 13px; line-height: 1.8; margin: 10px 0; }
 .legend { gap: 5px; margin-bottom: 10px; }
-.f-style { color: #7a5c3e; } .f-shot { color: #4a6fa5; }
+/* A legend is only useful if its entries stay telling apart. These keep a wide
+   hue spread rather than collapsing into the blue: house style takes the
+   accent, and the rest hold their own hues. */
+.f-style { color: var(--accent); } .f-shot { color: #7c4dbd; }
 .f-action { color: var(--fg); font-weight: 600; }
-.f-character { color: #2e7d5b; font-weight: 600; }
-.f-location { color: #8a6d3b; } .f-light { color: #a8752c; }
-.f-palette { color: #6b5b95; } .f-override { color: #b3261e; }
+.f-character { color: #12795a; font-weight: 600; }
+.f-location { color: #9a5b2d; } .f-light { color: #a8811a; }
+.f-palette { color: #b03a86; } .f-override { color: var(--danger); }
 @media (prefers-color-scheme: dark) {
-  .f-style { color: #d3b08c; } .f-shot { color: #9db8de; }
-  .f-character { color: #7fd0a6; } .f-location { color: #d6b171; }
-  .f-light { color: #e0b061; } .f-palette { color: #b3a4e0; }
+  .f-shot { color: #b79df0; }
+  .f-character { color: #5fd3a3; } .f-location { color: #e0a86a; }
+  .f-light { color: #e8c56a; } .f-palette { color: #ef8fc9; }
 }
 
 /* ---- narration ---------------------------------------------------------- */
 .line { margin: 10px 0 14px; }
 .line textarea { font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
                  padding: 9px 11px; }
-.chip.ok { color: #2e7d5b; border-color: #2e7d5b; }
-.chip.warn { color: #a8752c; border-color: #a8752c; }
-.chip.bad { color: #b3261e; border-color: #b3261e; }
-.bad-border { border-color: #b3261e; }
+.chip.ok { color: var(--ok); border-color: var(--ok); }
+.chip.warn { color: var(--warn); border-color: var(--warn); }
+.chip.bad { color: var(--danger); border-color: var(--danger); }
+.bad-border { border-color: var(--danger); }
 
 /* ---- inline editing ----------------------------------------------------- */
 .field { display: flex; flex-direction: column; gap: 4px; }

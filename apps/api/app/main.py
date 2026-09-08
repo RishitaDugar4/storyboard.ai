@@ -11,7 +11,7 @@ from .config import get_settings
 from .db.session import dispose_engine
 from .jobs.events import close_bus
 from .errors import install_error_handlers
-from .routers import (auth, characters, health, jobs, narration,
+from .routers import (auth, characters, health, jobs, motion, narration,
                       projects, stills, story)
 
 log = logging.getLogger("hbz")
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(characters.router)
     app.include_router(stills.router)
     app.include_router(narration.router)
+    app.include_router(motion.router)
     return app
 
 

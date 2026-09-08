@@ -176,3 +176,87 @@ class FakeSpeechAdapter:
                          sample_rate=DEFAULT_SAMPLE_RATE, voice=voice),
             Usage(model=self.model, latency_ms=5, cost_cents=0.0),
         )
+
+
+class FakeVideoAdapter:
+    """A real, probe-able MP4 -- produced locally, costing nothing.
+
+    It must be a genuine video file rather than a stub: the whole point of the
+    validation stage is to measure what came back with ffprobe, and a fake that
+    cannot be probed would leave that path untested until the first paid run.
+
+    What it produces is a synthetic test pattern of the right length, not an
+    animation of the keyframe: it stands in for a provider, it does not imitate
+    one. The registry hands it out only when AI_VIDEO_PROVIDER is explicitly
+    `fake`, and nothing can reach it as a fallback from a real generation -- a
+    failed clip fails (see handlers/motion.py).
+    """
+
+    name = "fake"
+    provider = "fake"
+
+    def __init__(self, *, fail: bool = False, ticks_pending: int = 0) -> None:
+        self._fail = fail
+        #: How many polls report "not done" before completing, so the polling
+        #: and backoff path is exercised rather than short-circuited.
+        self._ticks_pending = ticks_pending
+        self._polls: dict[str, int] = {}
+        self.submissions = 0
+
+    def serves(self, adapter_name: str) -> bool:
+        return True
+
+    async def submit(self, req):
+        from ..ports import AIError, AIErrorKind, Submission
+        if self._fail:
+            raise AIError(AIErrorKind.REFUSAL, "provider_refused",
+                          "FakeVideoAdapter simulated a refusal")
+        self.submissions += 1
+        job_id = f"fake-{self.submissions:04d}"
+        return Submission(
+            provider_job_id=job_id, endpoint="fake://video",
+            raw={"duration_s": req.duration_s, "prompt": req.prompt,
+                 "first_frame": req.first_frame.hex()[:16]})
+
+    async def poll(self, sub):
+        from ..ports import OperationState
+        n = self._polls.get(sub.provider_job_id, 0)
+        self._polls[sub.provider_job_id] = n + 1
+        if n < self._ticks_pending:
+            return OperationState(done=False, progress_hint=f"tick {n + 1}")
+        return OperationState(done=True, video_uri="fake://video/ready",
+                              raw=sub.raw)
+
+    async def fetch(self, state):
+        from ..ports import AIError, AIErrorKind, VideoResult
+        data = _synth_mp4(float(state.raw.get("duration_s", 5.0)))
+        if data is None:
+            raise AIError(
+                AIErrorKind.TRANSIENT, "no_ffmpeg",
+                "the fake video adapter needs ffmpeg to produce a probe-able "
+                "clip. Install ffmpeg, or run the planning stages only.")
+        return VideoResult(data=data, mime="video/mp4")
+
+    async def aclose(self) -> None:
+        return None
+
+
+def _synth_mp4(duration_s: float) -> bytes | None:
+    """A real H.264 file of the requested length, or None without ffmpeg."""
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    from ...render.ffmpeg import FFMPEG
+    if not FFMPEG:
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        dest = Path(td) / "fake.mp4"
+        subprocess.run(
+            [FFMPEG, "-y", "-v", "error",
+             "-f", "lavfi", "-i",
+             f"testsrc2=size=1280x720:rate=24:duration={duration_s:.3f}",
+             "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+             str(dest)],
+            capture_output=True, timeout=120, check=True)
+        return dest.read_bytes()

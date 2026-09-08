@@ -23,6 +23,10 @@ class AIErrorKind(StrEnum):
     INVALID = "invalid"          # schema unfixable after repair -- surface raw
     AUTH = "auth"
     BUDGET = "budget"            # our own cap, checked before the call
+    #: A provider deleted the media before we downloaded it (Veo keeps clips
+    #: 48h). Not retryable as a download -- the generation must be re-run, and
+    #: paid for again, which is a decision for a human rather than a retry.
+    EXPIRED = "expired"
     UNKNOWN = "unknown"
 
 
@@ -113,3 +117,89 @@ class TextPort(Protocol):
         max_tokens: int = 16000, effort: str = "high",
         cache_prefix: str | None = None,
     ) -> StructuredResult[T]: ...
+
+
+# --------------------------------------------------------------------------- #
+# Motion. The fourth capability.
+#
+# Unlike text, image and speech, video generation is asynchronous by nature:
+# submit, poll, fetch. That shape is deliberately NOT hidden behind a
+# synchronous facade -- a 90-second provider wait held open inside one job
+# would occupy a worker slot for the whole time and die with it, so the job
+# layer needs the three phases separately (ARCHITECTURE 8.4).
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class VideoRequest:
+    """Fully resolved. Every field here has already passed through planning.
+
+    Adapters contain no policy: duration snapping, reference truncation,
+    pricing and authorization all happened before this object was built.
+    """
+
+    model_key: str
+    model_id: str
+    #: The APPROVED still, as bytes. Always image-to-video -- the keyframe is
+    #: the consistency anchor, and for models with no reference-image input it
+    #: is the ONLY one.
+    first_frame: bytes
+    first_frame_mime: str
+    prompt: str
+    negative_prompt: str | None      # None when the model has no such input
+    reference_images: list[bytes]    # already truncated to the model's limit
+    duration_s: float                # already snapped to a legal value
+    resolution: str                  # already resolved
+    aspect_ratio: str
+    seed: int | None
+
+
+@dataclass
+class Submission:
+    provider_job_id: str
+    endpoint: str
+    #: Providers that delete media (Veo: +48h). None means kept indefinitely.
+    expires_at: str | None = None
+    raw: dict = field(default_factory=dict)
+
+
+@dataclass
+class OperationState:
+    done: bool
+    error: AIError | None = None
+    video_uri: str | None = None
+    #: Populated only where the provider actually reports a charge. fal does
+    #: not, so cost stays estimated and the budget gate governs.
+    reported_cost_cents: int | None = None
+    model_version: str | None = None
+    progress_hint: str | None = None
+    raw: dict = field(default_factory=dict)
+
+
+@dataclass
+class VideoResult:
+    data: bytes
+    mime: str
+    #: ffprobe truth, filled in by the caller after download. The request's
+    #: duration is a promise; this is what actually arrived, and the bake-off
+    #: measured providers missing it by up to 125ms.
+    duration_ms: int | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    has_audio: bool = False
+
+
+class VideoPort(Protocol):
+    """One interface for every image-to-video backend.
+
+    Implementations are thin. Everything the app reasons about lives in the
+    catalogue, not in these methods -- which is what makes adding a model a
+    data change rather than a code change.
+    """
+
+    name: str
+
+    def serves(self, adapter_name: str) -> bool: ...
+    async def submit(self, req: VideoRequest) -> Submission: ...
+    async def poll(self, sub: Submission) -> OperationState: ...
+    async def fetch(self, state: OperationState) -> VideoResult: ...
+    async def aclose(self) -> None: ...

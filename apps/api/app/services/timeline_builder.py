@@ -17,11 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.pacing import PAD_S
-from ..db.models import (Asset, AssetKind, Character, NarrationLine, Project,
-                         Scene, Shot)
+from ..db.models import (Asset, AssetKind, Character, MotionMode, NarrationLine,
+                         Project, Scene, Shot)
 from ..render.timeline import (AudioCue, AudioMix, Card, CameraMove, Clip,
                                KenBurns, Profile, Source, SourceKind, Timeline)
 from ..storage import get_storage
+from .motion_service import clip_is_fresh
 
 #: The image lands a beat before the voice starts, and holds a beat after.
 LEAD_IN_MS = 300
@@ -48,7 +49,16 @@ class BuildResult:
 
 async def build_timeline(session: AsyncSession, project: Project, *,
                          profile: Profile = Profile.PREVIEW,
-                         subtitles: bool = True) -> BuildResult:
+                         subtitles: bool = True,
+                         require_motion: bool = False) -> BuildResult:
+    """Assemble the film.
+
+    A shot contributes a generated CLIP when it has a fresh one, and its
+    approved still with a Ken Burns move otherwise. `require_motion` turns
+    that fallback into a blocking error: an animated film that quietly
+    substitutes a still for the one shot whose generation failed is a
+    slideshow with extra steps, and the failure has to be visible.
+    """
     storage = get_storage()
     blocking: list[BuildProblem] = []
     advisory: list[BuildProblem] = []
@@ -72,6 +82,7 @@ async def build_timeline(session: AsyncSession, project: Project, *,
             scene_lines.setdefault(line.scene_id, []).append(line)
 
     asset_ids = {s.selected_image_id for s, _ in rows if s.selected_image_id}
+    asset_ids |= {s.selected_clip_id for s, _ in rows if s.selected_clip_id}
     asset_ids |= {l.audio_asset_id
                   for ls in (*lines_by_shot.values(), *scene_lines.values())
                   for l in ls if l.audio_asset_id}
@@ -95,17 +106,50 @@ async def build_timeline(session: AsyncSession, project: Project, *,
             lines = scene_lines.get(scene.id, []) + lines
 
         still = assets.get(shot.selected_image_id) if shot.selected_image_id else None
-        if still is None:
-            blocking.append(BuildProblem(
-                "no_still", f"shot in '{scene.title}' has no approved still",
-                str(shot.id)))
-            continue
-        path = storage.local_path(still.storage_key)
-        if path is None:
-            blocking.append(BuildProblem(
-                "still_missing", f"the file for '{scene.title}' is gone from storage",
-                str(shot.id)))
-            continue
+        clip_asset = (assets.get(shot.selected_clip_id)
+                      if shot.selected_clip_id else None)
+        animated = (clip_asset is not None
+                    and shot.motion_mode is not MotionMode.KENBURNS
+                    and clip_is_fresh(shot, clip_asset))
+
+        if animated:
+            path = storage.local_path(clip_asset.storage_key)
+            if path is None:
+                blocking.append(BuildProblem(
+                    "clip_missing",
+                    f"the generated clip for '{scene.title}' is gone from storage",
+                    str(shot.id)))
+                continue
+        else:
+            if require_motion:
+                # Say which of the three reasons it is; "no motion" alone
+                # sends people looking in the wrong place.
+                why = ("has no generated clip" if clip_asset is None
+                       else "has a stale clip -- its prompt or keyframe changed "
+                            "since it was animated")
+                blocking.append(BuildProblem(
+                    "no_motion",
+                    f"shot in '{scene.title}' {why}. This render was asked for "
+                    f"real motion, so it will not silently fall back to a "
+                    f"still.", str(shot.id)))
+                continue
+            if still is None:
+                blocking.append(BuildProblem(
+                    "no_still", f"shot in '{scene.title}' has no approved still",
+                    str(shot.id)))
+                continue
+            path = storage.local_path(still.storage_key)
+            if path is None:
+                blocking.append(BuildProblem(
+                    "still_missing",
+                    f"the file for '{scene.title}' is gone from storage",
+                    str(shot.id)))
+                continue
+            if clip_asset is not None:
+                advisory.append(BuildProblem(
+                    "stale_clip",
+                    f"'{scene.title}' has a clip that no longer matches its "
+                    f"prompt; using the still instead.", str(shot.id)))
 
         cues: list[AudioCue] = []
         offset = LEAD_IN_MS
@@ -129,19 +173,43 @@ async def build_timeline(session: AsyncSession, project: Project, *,
             offset += line.duration_ms
             narration_ms += line.duration_ms
 
-        # ARCHITECTURE 10.3: a still stretches for free, so intent is honoured
-        # exactly unless the narration needs more room.
         required_ms = (narration_ms + LEAD_IN_MS + TAIL_MS) if narration_ms else 0
-        duration_ms = max(int(float(shot.target_duration_s) * 1000), required_ms)
 
-        clips.append(Clip(
-            shot_id=str(shot.id),
-            scene_index=scene.sort_order // 1000,
-            shot_index=shot.sort_order // 1000,
-            source=Source(kind=SourceKind.STILL, path=path),
-            kenburns=KenBurns(move=CameraMove(str(shot.camera_move))),
-            start_ms=cursor, duration_ms=duration_ms, tail_freeze_ms=0,
-            audio=cues, label=scene.title))
+        if animated:
+            # ARCHITECTURE 10.3, the paid case. A clip does NOT stretch for
+            # free: its length is whatever the provider actually produced --
+            # measured, never the length we asked for, because the bake-off
+            # saw both providers miss. When the narration outruns it the last
+            # frame is held, and that freeze is recorded explicitly so
+            # preflight can warn about a shot that ends on a stall.
+            native_ms = int(clip_asset.duration_ms or 0)
+            duration_ms = max(native_ms, required_ms)
+            source = Source(kind=SourceKind.CLIP, path=path,
+                            native_duration_ms=native_ms,
+                            has_audio=bool(clip_asset.has_audio),
+                            provider=clip_asset.provider,
+                            model_key=clip_asset.model)
+            clips.append(Clip(
+                shot_id=str(shot.id),
+                scene_index=scene.sort_order // 1000,
+                shot_index=shot.sort_order // 1000,
+                source=source, kenburns=None,
+                start_ms=cursor, duration_ms=duration_ms,
+                tail_freeze_ms=max(0, duration_ms - native_ms),
+                audio=cues, label=scene.title))
+        else:
+            # A still stretches for free, so intent is honoured exactly unless
+            # the narration needs more room.
+            duration_ms = max(int(float(shot.target_duration_s) * 1000),
+                              required_ms)
+            clips.append(Clip(
+                shot_id=str(shot.id),
+                scene_index=scene.sort_order // 1000,
+                shot_index=shot.sort_order // 1000,
+                source=Source(kind=SourceKind.STILL, path=path),
+                kenburns=KenBurns(move=CameraMove(str(shot.camera_move))),
+                start_ms=cursor, duration_ms=duration_ms, tail_freeze_ms=0,
+                audio=cues, label=scene.title))
         cursor += duration_ms
 
     if blocking:

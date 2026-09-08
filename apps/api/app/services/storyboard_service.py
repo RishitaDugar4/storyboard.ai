@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..ai.catalog import VideoModelCaps
+from ..ai.catalog import get as get_caps
 from ..ai.pacing import word_budget
 from ..ai.ports import StructuredResult, TextPort
 from ..schemas.ai import StoryAnalysis, Storyboard
@@ -33,6 +35,16 @@ class StoryboardRequest:
     aspect_ratio: str = "16:9"
     style_preset: str = "storybook_gouache"
     notes: str = ""
+    #: The image-to-video model the film will be animated with, when one is
+    #: known. Its duration grid is a hard constraint on the storyboard, not a
+    #: detail to reconcile afterwards: every provider rounds a request UP, so
+    #: a 13-word line written for a 6s shot silently buys a 10s clip on a
+    #: 5s/10s grid. Told the grid up front, the director writes to it.
+    motion_model_key: str | None = None
+
+    @property
+    def motion_caps(self) -> VideoModelCaps | None:
+        return get_caps(self.motion_model_key) if self.motion_model_key else None
 
     @property
     def suggested_scene_count(self) -> tuple[int, int]:
@@ -78,6 +90,39 @@ def build_user_prompt(req: StoryboardRequest) -> str:
         "Word budgets you must respect (narration per shot):",
         *[f"  {d:g}s shot -> at most {word_budget(d)} words"
           for d in (4, 5, 6, 8, 10)],
+    ]
+    if (caps := req.motion_caps) is not None:
+        grid = sorted(caps.durations.values) or [caps.durations.min_s]
+        lines += [
+            "",
+            f"This film will be animated with {caps.display_name}, which can "
+            f"only produce clips of {caps.durations.describe()}. A duration "
+            f"between those values is rounded UP to the next one, and you pay "
+            f"for -- and watch -- the longer clip.",
+            "So set every target_duration_s to one of these values exactly, "
+            "and keep each shot's narration inside that value's budget:",
+            *[f"  {d:g}s -> at most {word_budget(d)} words" for d in grid],
+            f"Prefer {min(grid):g}s. Spend a longer clip only where the beat "
+            f"genuinely needs the time; every one you use costs runtime you "
+            f"then cannot give to another shot.",
+        ]
+    lines += [
+        "",
+        "Motion. Every shot will become a real animated clip, so each one "
+        "needs a motion plan as well as a composition:",
+        "  - `action` and `composition_note` describe a SINGLE FRAME: what "
+        "the keyframe looks like. No movement verbs.",
+        "  - `subject_motion` describes what the people physically DO across "
+        "the shot -- specific, observable, one idea. \"She turns her head "
+        "toward the door and takes a step back, blinking\", never \"she is "
+        "afraid\" and never \"it is cinematic\".",
+        "  - `environment_motion` describes what moves that nobody is doing: "
+        "curtains, rain, dust in a beam, firelight, a passing car. This is "
+        "often what separates an animated shot from a photograph.",
+        "  - `motion_pacing` is how much happens per second: `still` `slow` "
+        "`steady` `brisk`. Match the beat. A quiet scene paced `brisk` reads "
+        "as wrong, and most shots should be `slow`.",
+        "  - `camera_move` is the camera only, never the subject.",
     ]
     if req.notes:
         lines += ["", f"Additional direction: {req.notes}"]

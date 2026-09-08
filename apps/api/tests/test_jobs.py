@@ -403,3 +403,54 @@ async def test_a_running_job_is_not_restarted_by_a_second_click(client):
         job = await s.get(Job, job.id)
         assert jobs.revive(job) is False
         assert job.status is JobStatus.RUNNING
+
+
+async def test_asking_again_after_a_failure_actually_runs_it_again(client):
+    """The dead button: the idempotency key matched a job that had already
+    failed, so the request was accepted, dispatched nothing, and handed back
+    the failed job -- indistinguishable, from the interface, from a click that
+    never registered."""
+    pid = await _project(client)
+    async with get_sessionmaker()() as s:
+        job, created = await jobs.enqueue(
+            s, project_id=uuid.UUID(pid), kind="asset.image",
+            input_hash="same-shot", target_type="shot")
+        await s.commit()
+        assert jobs.needs_dispatch(job, created) is True
+
+        await jobs.claim(s, job.id)
+        job = await s.get(Job, job.id)
+        await jobs.fail(s, job, "auth:unauthorized", "fal said no")
+
+        # The same request arrives again: same project, kind, target, hash.
+        again, created = await jobs.enqueue(
+            s, project_id=uuid.UUID(pid), kind="asset.image",
+            input_hash="same-shot", target_type="shot")
+        assert created is False and again.id == job.id
+        assert jobs.needs_dispatch(again, created) is True
+        assert again.status is JobStatus.QUEUED
+
+
+async def test_finished_work_is_returned_rather_than_paid_for_twice(client):
+    pid = await _project(client)
+    async with get_sessionmaker()() as s:
+        job, _ = await jobs.enqueue(s, project_id=uuid.UUID(pid),
+                                    kind="asset.image", input_hash="done")
+        await s.commit()
+        await jobs.claim(s, job.id)
+        job = await s.get(Job, job.id)
+        await jobs.succeed(s, job, {"asset_id": "x"})
+        assert jobs.needs_dispatch(job, False) is False
+        assert job.status is JobStatus.SUCCEEDED
+
+
+async def test_work_in_flight_is_joined_not_restarted(client):
+    pid = await _project(client)
+    async with get_sessionmaker()() as s:
+        job, _ = await jobs.enqueue(s, project_id=uuid.UUID(pid),
+                                    kind="asset.image", input_hash="inflight")
+        await s.commit()
+        await jobs.claim(s, job.id)
+        job = await s.get(Job, job.id)
+        assert jobs.needs_dispatch(job, False) is False
+        assert job.status is JobStatus.RUNNING

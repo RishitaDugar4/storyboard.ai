@@ -11,6 +11,7 @@ OUT      := $(API)/out
         render-preview render-final preflight demo-fixtures test test-api \
         test-render test-ai test-ui test-ui-headed ai-fixtures analyze storyboard storyboard-fake \
         eval eval-fake user-add user-list worker dev dev-fake dev-stop smoke \
+        models motion-smoke \
         clean-render bakeoff-fake stack-up stack-down stack-logs \
         deploy deploy-bootstrap deploy-logs deploy-ps deploy-backup
 
@@ -97,6 +98,12 @@ test: ## run all api tests (renderer + integration)
 test-render: ## renderer tests only (no database needed)
 	cd $(API) && .venv/bin/python -m pytest tests/test_render.py -q
 
+theme-check: ## verify theme contrast against WCAG AA (needs a running stack)
+	cd apps/web && node scripts/theme-contrast.mjs
+
+theme-shots: ## screenshot every themed surface, light and dark (needs a running stack)
+	cd apps/web && OUT=$(or $(out),/tmp) node scripts/theme-shot.mjs
+
 test-ui: ## browser tests against a running stack (needs 'make dev-fake')
 	cd apps/web && BASE_URL=$(or $(base),http://localhost:3000) \
 		E2E_EMAIL=$(or $(email),rishita@local) \
@@ -121,12 +128,34 @@ analyze: ## analyse a story:  make analyze f=path/to/story.txt
 	cd $(API) && set -a && . ../../.env && set +a && \
 		.venv/bin/python -m app.ai.cli analyze $(abspath $(f))
 
-storyboard: ## storyboard a story:  make storyboard f=story.txt [len=90]
-	@test -n "$(f)" || { echo "usage: make storyboard f=path/to/story.txt"; exit 2; }
+# `length` and `len` both work: `len` is what this target has always taken,
+# `length` is what the flag is actually called. Neither is worth breaking a
+# muscle-memory command over.
+STORY_LENGTH = $(or $(length),$(len),90)
+
+storyboard: ## storyboard + motion plan:  make storyboard f=story.txt [length=90] [model=KEY] [fake=1]
+	@test -n "$(f)" || { echo "usage: make storyboard f=path/to/story.txt [length=90] [model=KEY]"; exit 2; }
 	@test -f "$(abspath $(f))" || { echo "no such file: $(f)"; exit 2; }
 	cd $(API) && set -a && . ../../.env && set +a && \
 		.venv/bin/python -m app.ai.cli storyboard $(abspath $(f)) \
-			--length $(or $(len),90) $(if $(out),--out $(abspath $(out)),)
+			--length $(STORY_LENGTH) \
+			$(if $(model),--model $(model),) \
+			$(if $(fake),--fake,) \
+			$(if $(out),--out $(abspath $(out)),)
+
+models: ## list the image-to-video catalogue and the default
+	cd $(API) && .venv/bin/python -m app.ai.cli models
+
+# Spend the price of ONE clip before spending the price of a film. Without
+# yes=1 this only prints the plan and the cost.
+motion-smoke: ## one real clip:  make motion-smoke keyframe=path/to.png [model=KEY] [yes=1]
+	@test -n "$(keyframe)" || { echo "usage: make motion-smoke keyframe=path/to/frame.png [yes=1]"; exit 2; }
+	cd $(API) && set -a && . ../../.env && set +a && \
+		.venv/bin/python tools/motion_smoke.py \
+			--keyframe $(abspath $(keyframe)) \
+			$(if $(model),--model $(model),) \
+			$(if $(duration),--duration $(duration),) \
+			$(if $(yes),--yes,)
 
 eval: ## run the story corpus and report storyboard quality (~50c)
 	cd $(API) && set -a && . ../../.env && set +a && \

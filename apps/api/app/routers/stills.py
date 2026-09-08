@@ -10,7 +10,7 @@ from sqlalchemy import select
 from ..auth import CurrentUser, DbSession
 from ..db.ids import uuid7
 from ..db.models import (Asset, AssetKind, AssetSource, Character,
-                         JobStatus, Project, Scene, Shot)
+                         Project, Scene, Shot)
 from ..errors import DomainError, NotFound, StagePreconditionFailed
 from ..jobs import get_queue
 from ..jobs import service as jobs
@@ -213,8 +213,9 @@ async def generate_still(shot_id: uuid.UUID, body: GenerateStill,
         session, project_id=project.id, kind="asset.image",
         input_hash=f"{plan.input_hash}:{body.n}",
         target_type="shot", target_id=shot.id, payload={"n": body.n})
+    dispatch = jobs.needs_dispatch(job, created)
     await session.commit()
-    if created or job.status == JobStatus.QUEUED:
+    if dispatch:
         await get_queue().enqueue("asset.image", job.id,
                                   attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind="asset.image",

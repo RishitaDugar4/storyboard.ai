@@ -11,7 +11,7 @@ from ..ai.registry import get_speech_port
 from ..auth import CurrentUser, DbSession
 from ..db.ids import uuid7
 from ..db.ids import uuid7
-from ..db.models import (Asset, AssetKind, AssetSource, JobStatus,
+from ..db.models import (Asset, AssetKind, AssetSource,
                          NarrationLine, Project, Render, RenderProfile, Scene,
                          Shot)
 from ..errors import DomainError, NotFound
@@ -34,6 +34,12 @@ class LineUpdate(BaseModel):
 class RenderRequest(BaseModel):
     profile: str = Field(default="preview", pattern="^(preview|final)$")
     subtitles: bool = True
+    #: Refuse to render at all unless every shot has a fresh generated clip.
+    #: Without this a film asked for as "animated" quietly substitutes a still
+    #: for whichever shot failed to generate, and ships as a slideshow with
+    #: one moving frame. The failure has to be visible before the render, not
+    #: discovered on watching it.
+    require_motion: bool = False
 
 
 async def _owned(session, user, pid: uuid.UUID) -> Project:
@@ -123,8 +129,9 @@ async def generate_audio(line_id: uuid.UUID, session: DbSession,
         session, project_id=project.id, kind="narration.tts",
         input_hash=f"{line.id}:{hash(line.text)}:{line.delivery}",
         target_type="narration_line", target_id=line.id)
+    dispatch = jobs.needs_dispatch(job, created)
     await session.commit()
-    if created or job.status == JobStatus.QUEUED:
+    if dispatch:
         await get_queue().enqueue("narration.tts", job.id,
                                   attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind="narration.tts",
@@ -144,7 +151,7 @@ async def generate_all(project_id: uuid.UUID, session: DbSession,
             session, project_id=project.id, kind="narration.tts",
             input_hash=f"{line.id}:{hash(line.text)}:{line.delivery}",
             target_type="narration_line", target_id=line.id)
-        if created or job.status == JobStatus.QUEUED:
+        if jobs.needs_dispatch(job, created):
             queued.append((job.kind, job.id, job.attempt))
     await session.commit()
     for kind, jid, attempt in queued:
@@ -224,7 +231,8 @@ async def preflight(project_id: uuid.UUID, body: RenderRequest,
     project = await _owned(session, user, project_id)
     result = await build_timeline(session, project,
                                   profile=Profile(body.profile),
-                                  subtitles=body.subtitles)
+                                  subtitles=body.subtitles,
+                                  require_motion=body.require_motion)
     return {
         "ok": result.ok,
         "blocking": [{"code": p.code, "message": p.message, "shot_id": p.shot_id}
@@ -243,7 +251,8 @@ async def create_render(project_id: uuid.UUID, body: RenderRequest,
     project = await _owned(session, user, project_id)
     result = await build_timeline(session, project,
                                   profile=Profile(body.profile),
-                                  subtitles=body.subtitles)
+                                  subtitles=body.subtitles,
+                                  require_motion=body.require_motion)
     if not result.ok:
         # Refused before a job exists: a six-minute render that ends in a black
         # frame is worse than a clear refusal now.
@@ -263,8 +272,9 @@ async def create_render(project_id: uuid.UUID, body: RenderRequest,
     job, created = await jobs.enqueue(
         session, project_id=project.id, kind="render.preview",
         input_hash=timeline.hash(), target_type="render", target_id=render.id)
+    dispatch = jobs.needs_dispatch(job, created)
     await session.commit()
-    if created or job.status == JobStatus.QUEUED:
+    if dispatch:
         await get_queue().enqueue("render.preview", job.id,
                                   attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind="render.preview",

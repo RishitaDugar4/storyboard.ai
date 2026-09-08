@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from ..auth import CurrentUser, DbSession
 from ..db.ids import uuid7
-from ..db.models import (Job, JobStatus, Project, StoryAnalysisDoc,
+from ..db.models import (Job, Project, StoryAnalysisDoc,
                          StoryboardDoc, StoryInput)
 from ..errors import DomainError, NotFound, StagePreconditionFailed
 from ..jobs import get_queue
@@ -35,12 +35,14 @@ async def _accept(session, project: Project, kind: str, input_hash: str,
     job, created = await jobs.enqueue(
         session, project_id=project.id, kind=kind, input_hash=input_hash,
         payload=payload or {})
-    await session.commit()
     # Push to the broker whenever the row is still QUEUED, not only when it was
     # just created. A crash between the commit and the enqueue would otherwise
     # strand the job forever, and re-enqueuing is harmless: claim() is atomic,
-    # so a duplicate delivery finds nothing to take.
-    if created or job.status == JobStatus.QUEUED:
+    # so a duplicate delivery finds nothing to take. A job that already failed
+    # is revived here too, so asking again means "try again".
+    dispatch = jobs.needs_dispatch(job, created)
+    await session.commit()
+    if dispatch:
         await get_queue().enqueue(kind, job.id, attempt=job.attempt)
     return JobAccepted(job_id=job.id, kind=kind, status=str(job.status),
                        created=created)

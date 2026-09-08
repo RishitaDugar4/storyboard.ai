@@ -175,6 +175,30 @@ def revive(job: Job) -> bool:
     return True
 
 
+#: A job that ended badly must not make the request that made it permanently
+#: inert. The idempotency key exists to stop duplicate *work*, not to turn one
+#: failure into a button that never works again.
+RETRYABLE_TERMINAL = (JobStatus.FAILED, JobStatus.CANCELLED)
+
+
+def needs_dispatch(job: Job, created: bool) -> bool:
+    """Whether the caller should put this job on the broker.
+
+    Revives a job that failed or was cancelled, so repeating the request means
+    "try again" -- which is what pressing the button again plainly means, and
+    what it silently did not do while a failed job matched the key.
+
+    A succeeded job is deliberately left alone: identical work that is already
+    finished should be handed back, not paid for a second time. A running one
+    is left alone too -- a second click joins the work in flight.
+    """
+    if created or job.status == JobStatus.QUEUED:
+        return True
+    if job.status in RETRYABLE_TERMINAL:
+        return revive(job)
+    return False
+
+
 async def notify_entity(project_id: uuid.UUID, entity: str,
                         entity_id: uuid.UUID | None, reason: str) -> None:
     """Tell listeners something changed so they refetch it."""

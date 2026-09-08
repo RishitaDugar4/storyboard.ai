@@ -21,7 +21,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from ...ai.pacing import MAX_SHOT_S, MIN_SHOT_S, word_budget
 
-SCHEMA_VERSION = "3.0"
+#: 3.1 adds the per-shot motion specification (M6). Purely additive, and
+#: "3.0" is still accepted: a storyboard curated before motion existed must
+#: keep loading, it simply animates with less direction.
+SCHEMA_VERSION = "3.1"
 
 SLUG = r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$"
 
@@ -32,6 +35,9 @@ CameraMove = Literal["static", "push_in", "pull_out", "pan_left", "pan_right",
 TimeOfDay = Literal["dawn", "day", "dusk", "night", "unspecified"]
 Delivery = Literal["neutral", "warm", "wistful", "excited", "tense", "playful"]
 MotionPriority = Literal["low", "medium", "high"]
+#: How much happens per second. A calm scene animated briskly reads as wrong,
+#: so pacing is directed rather than left to the video model's instincts.
+MotionPacing = Literal["still", "slow", "steady", "brisk"]
 
 NARRATOR = "narrator"
 
@@ -98,10 +104,38 @@ class Shot(BaseModel):
     action: str = Field(min_length=1, max_length=400)
     composition_note: str = Field(default="", max_length=240)
     camera_move: CameraMove = "push_in"
-    #: What visibly moves. Used only if this shot is later animated.
+
+    # ---- the motion plan ---------------------------------------------------
+    # `action` and `composition_note` above describe a single FRAME -- what the
+    # keyframe must look like. Everything below describes what happens DURING
+    # the shot, and is composed into the prompt sent to the image-to-video
+    # model. Split deliberately: a still prompt that also describes movement
+    # produces a blurred frame, and a motion prompt that re-describes the
+    # composition invites the video model to reinterpret it instead of
+    # animating what it was given.
+    #: What the people or creatures in frame physically do. One idea, concrete
+    #: and observable: "she turns her head toward the door and blinks", never
+    #: "she feels afraid".
     subject_motion: str = Field(default="", max_length=300)
+    #: What moves that nobody is doing: curtains, rain, dust, firelight,
+    #: passing traffic. Often the whole difference between an animated shot
+    #: and a photograph that happens to be a video file.
+    environment_motion: str = Field(default="", max_length=240)
+    #: How much happens per second. Calm scenes earn "slow" or "still"; the
+    #: goal is cinematic motion, not motion everywhere.
+    motion_pacing: MotionPacing = "slow"
     ambient_sound: str = Field(default="", max_length=120)
     motion_priority: MotionPriority = "low"
+
+    @property
+    def has_motion_plan(self) -> bool:
+        """Whether this shot says anything specific about what should move.
+
+        A shot with no plan can still be animated, but it is leaning entirely
+        on the model's imagination -- which is how a quiet scene acquires a
+        gale, so it is worth being able to detect and report.
+        """
+        return bool(self.subject_motion.strip() or self.environment_motion.strip())
     #: Authorial intent in seconds. NOT a provider grid.
     target_duration_s: float = Field(default=6.0, ge=MIN_SHOT_S, le=MAX_SHOT_S)
 
@@ -131,7 +165,7 @@ class Scene(BaseModel):
 
 
 class Storyboard(BaseModel):
-    schema_version: Literal["3.0"] = SCHEMA_VERSION
+    schema_version: Literal["3.0", "3.1"] = SCHEMA_VERSION
     title: str = Field(min_length=1, max_length=120)
     logline: str = Field(min_length=1, max_length=240)
     style_bible: StyleBible

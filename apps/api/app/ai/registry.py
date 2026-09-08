@@ -82,3 +82,31 @@ def reset() -> None:
     get_text_port.cache_clear()
     get_image_port.cache_clear()
     get_speech_port.cache_clear()
+    get_video_port.cache_clear()
+
+
+#: Which VideoPort implementation serves each catalogue `adapter` value. The
+#: catalogue names the adapter; this maps that name to code. Adding a fal-hosted
+#: model touches neither -- it is a catalogue row and nothing else.
+_VIDEO_ADAPTERS = {"fal"}
+
+
+@lru_cache(maxsize=4)
+def get_video_port(adapter: str = "fal"):
+    """Resolve the adapter a catalogue entry asks for.
+
+    Keyed by adapter rather than by a single provider setting, because one film
+    can legitimately mix models: the establishing shot on the cheap workhorse,
+    the two shots that carry the story on something better.
+    """
+    provider = os.getenv("AI_VIDEO_PROVIDER", "").lower()
+    if provider in ("fake", "none"):
+        from .adapters.fakes import FakeVideoAdapter
+        return FakeVideoAdapter()
+    if adapter == "fal":
+        from .adapters.fal_video import FalVideoAdapter
+        return FalVideoAdapter(os.getenv("FAL_KEY", ""))
+    raise ValueError(
+        f"no VideoPort implementation for adapter {adapter!r}. Implemented: "
+        f"{', '.join(sorted(_VIDEO_ADAPTERS))}. The catalogue entry naming it "
+        f"cannot be generated with until one exists.")

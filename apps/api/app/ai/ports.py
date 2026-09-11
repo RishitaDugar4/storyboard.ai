@@ -151,6 +151,18 @@ class VideoRequest:
     aspect_ratio: str
     seed: int | None
 
+    #: The frame the clip must END on -- in practice the NEXT shot's approved
+    #: still. The model interpolates between the two endpoints, so the next
+    #: shot opens on the exact image this one closed on and the cut between
+    #: them disappears.
+    #:
+    #: Optional because most of the catalogue has no such input. Planning
+    #: decides whether to set it (`VideoModelCaps.last_frame_field`); an
+    #: adapter whose model cannot take one simply never reads it, which is why
+    #: this stays a default rather than forcing every call site to pass None.
+    last_frame: bytes | None = None
+    last_frame_mime: str | None = None
+
 
 @dataclass
 class Submission:

@@ -216,7 +216,11 @@ class FakeVideoAdapter:
         return Submission(
             provider_job_id=job_id, endpoint="fake://video",
             raw={"duration_s": req.duration_s, "prompt": req.prompt,
-                 "first_frame": req.first_frame.hex()[:16]})
+                 "first_frame": req.first_frame.hex()[:16],
+                 # Recorded so a continuity test can assert the closing frame
+                 # actually reached the provider, without a network call.
+                 "last_frame": (req.last_frame.hex()[:16]
+                                if req.last_frame else None)})
 
     async def poll(self, sub):
         from ..ports import OperationState

@@ -129,6 +129,32 @@ for _ in $(seq 1 150); do
   [ "${PENDING:-1}" = "0" ] && break
   sleep 2
 done
+# Motion. Opt-in, because it is the only step here that costs real money --
+# a 14-shot film is several dollars against a few cents for everything else.
+# Without it this script renders exactly what it always rendered: approved
+# stills with a Ken Burns move, which is a slideshow.
+#
+#   MOTION=1 ./scripts/smoke.sh
+if [ "${MOTION:-0}" = "1" ]; then
+  PLAN=$(api -X POST "$BASE/api/v1/projects/$PID/motion:plan" \
+    -H 'content-type: application/json' -d '{}')
+  ok "motion would cost \$$(echo "$PLAN" | jq_ "'%.2f' % (d['estimated_cost_cents']/100)") for $(echo "$PLAN" | jq_ "d['shot_count']") shots"
+  GEN=$(api -X POST "$BASE/api/v1/projects/$PID/motion:generate_all" \
+    -H 'content-type: application/json' -d '{}')
+  QUEUED=$(echo "$GEN" | jq_ "d.get('queued', 0)")
+  [ "${QUEUED:-0}" != "0" ] && ok "queued $QUEUED clip generation(s)" \
+    || bad "motion queued nothing: $(echo "$GEN" | jq_ "d.get('detail', d)")"
+  # Generation runs 80-180s per clip, so this waits far longer than the
+  # still/narration loops above.
+  for _ in $(seq 1 600); do
+    PENDING=$(api "$BASE/api/v1/projects/$PID/jobs?status=active" | jq_ "d['total']")
+    [ "${PENDING:-1}" = "0" ] && break
+    sleep 5
+  done
+  CLIPS=$(api "$BASE/api/v1/projects/$PID/shots" | jq_ "sum(1 for i in d['items'] if i.get('clip'))")
+  ok "shots with a generated clip: ${CLIPS:-0}"
+fi
+
 PRE=$(api -X POST "$BASE/api/v1/projects/$PID/preflight" \
   -H 'content-type: application/json' -d '{"profile":"preview"}')
 [ "$(echo "$PRE" | jq_ "d['ok']")" = "True" ] && ok "preflight passed ($(echo "$PRE" | jq_ "d['clips']") shots)" \

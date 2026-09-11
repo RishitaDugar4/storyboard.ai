@@ -93,6 +93,14 @@ class FalVideoAdapter:
             candidate["seed"] = req.seed
         payload = {k: v for k, v in candidate.items() if k in caps.request_fields}
         payload.update(caps.extra_params)
+        # Written after the allowlist on purpose: the catalogue naming the
+        # field IS the declaration that this endpoint accepts it, so filtering
+        # it through a second list could only ever drop a field we just said
+        # was legal. Models with no closing-frame input leave it None and
+        # nothing is sent.
+        if req.last_frame and caps.last_frame_field:
+            payload[caps.last_frame_field] = _data_uri(
+                req.last_frame, req.last_frame_mime or req.first_frame_mime)
 
         r = await self._client.post(f"{QUEUE_BASE}/{req.model_id}", json=payload)
         if r.status_code >= 400:

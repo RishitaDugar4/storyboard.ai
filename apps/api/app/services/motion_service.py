@@ -27,8 +27,8 @@ from ..ai.catalog import (CATALOG, AudioBehavior, ModelStatus, ModelTier,
 from ..ai.catalog import get as get_caps
 from ..ai.pacing import PAD_S, required_seconds
 from ..ai.prompts.compose import ComposedMotion, compose_motion_prompt
-from ..db.models import (Asset, AssetKind, AssetSource, NarrationLine, Project,
-                         Scene, Shot)
+from ..db.models import (Asset, AssetKind, AssetSource, MotionContinuity,
+                         NarrationLine, Project, Scene, Shot)
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,21 @@ class MotionPlan:
     input_hash: str
     estimated_cost_cents: int
 
+    #: How this clip is joined to its neighbours. Already resolved against the
+    #: model and the neighbouring shots' state -- never the raw project
+    #: setting, so a caller reading this sees what will actually happen.
+    continuity: MotionContinuity = MotionContinuity.NONE
+    #: Blob key of the NEXT shot's approved still, when the model can be told
+    #: which frame to end on. The handler loads the bytes; planning stays free
+    #: of I/O beyond the rows it already reads.
+    last_frame_key: str | None = None
+    last_frame_mime: str = ""
+    last_frame_checksum: str = ""
+    #: Blob key of the PREVIOUS shot's clip, whose closing frame becomes this
+    #: clip's first frame. Set only in CHAINED mode.
+    chain_from_clip_key: str | None = None
+    chain_from_checksum: str = ""
+
     warnings: list[Note] = field(default_factory=list)
     blocking: list[Note] = field(default_factory=list)
 
@@ -73,9 +88,11 @@ class MotionPlan:
         return self.caps.pricing.confidence is PriceConfidence.VERIFIED
 
     def describe(self) -> str:
+        join = ("" if self.continuity is MotionContinuity.NONE
+                else f" · {self.continuity.value} join")
         return (f"{self.caps.display_name} · {self.resolved_duration_s:g}s · "
                 f"{self.resolved_resolution} · "
-                f"{self.estimated_cost_cents / 100:.2f} USD")
+                f"{self.estimated_cost_cents / 100:.2f} USD{join}")
 
 
 # --------------------------------------------------------------------------- #
@@ -259,6 +276,122 @@ async def _narration_words(session: AsyncSession, shot: Shot) -> int:
     return sum(len(l.text.split()) for l in lines)
 
 
+@dataclass
+class _Continuity:
+    """The resolved join for one shot. Never the raw project setting."""
+
+    mode: MotionContinuity = MotionContinuity.NONE
+    last_frame_key: str | None = None
+    last_frame_mime: str = ""
+    last_frame_checksum: str = ""
+    chain_from_clip_key: str | None = None
+    chain_from_checksum: str = ""
+
+
+async def _neighbours(session: AsyncSession,
+                      shot: Shot) -> tuple[Shot | None, Shot | None]:
+    """The shots immediately before and after this one *in the film*.
+
+    Film order, not scene order: the join that matters is the one the viewer
+    sees, and the last shot of scene 2 cuts to the first shot of scene 3. A
+    scene-local neighbour lookup would leave every scene boundary -- the most
+    visible cut in the film -- unjoined.
+    """
+    ordered = (await session.execute(
+        select(Shot).join(Scene, Scene.id == Shot.scene_id)
+        .where(Shot.project_id == shot.project_id)
+        .order_by(Scene.sort_order, Shot.sort_order))).scalars().all()
+    for i, s in enumerate(ordered):
+        if s.id == shot.id:
+            return (ordered[i - 1] if i > 0 else None,
+                    ordered[i + 1] if i + 1 < len(ordered) else None)
+    return None, None
+
+
+async def _resolve_continuity(session: AsyncSession, shot: Shot,
+                              project: Project, caps: VideoModelCaps,
+                              warnings: list[Note]) -> _Continuity:
+    """Decide how this shot joins its neighbours, and say so when it cannot.
+
+    Every downgrade to NONE is either warned about or silent-by-design, and
+    the difference is whether a human could have done something about it. A
+    missing still on the next shot is fixable and is warned; being the last
+    shot in the film is not, and warning about it would train people to
+    ignore the warnings that matter.
+    """
+    try:
+        requested = MotionContinuity(project.motion_continuity or "none")
+    except ValueError:
+        warnings.append(Note(
+            "continuity_unknown",
+            f"This project asks for {project.motion_continuity!r} continuity, "
+            f"which is not a value this build understands. Treating it as "
+            f"'none' -- shots will be cut together, not joined."))
+        return _Continuity()
+
+    if requested is MotionContinuity.NONE:
+        return _Continuity()
+
+    mode = requested
+    if mode is MotionContinuity.AUTO:
+        mode = (MotionContinuity.LAST_FRAME if caps.supports_last_frame
+                else MotionContinuity.CHAINED)
+
+    if mode is MotionContinuity.LAST_FRAME:
+        if not caps.supports_last_frame:
+            warnings.append(Note(
+                "continuity_unsupported",
+                f"{caps.display_name} has no closing-frame input, so it "
+                f"cannot be told where to end. This shot will be cut to the "
+                f"next one. Use 'auto' to fall back to chaining, or pick a "
+                f"model whose chips show 'last frame'."))
+            return _Continuity()
+        _, nxt = await _neighbours(session, shot)
+        if nxt is None:
+            return _Continuity()           # last shot of the film; nothing to join to
+        if nxt.selected_image_id is None:
+            warnings.append(Note(
+                "continuity_next_still_missing",
+                "The next shot has no approved still, so there is no frame "
+                "for this clip to end on. Approve it first and this join "
+                "becomes seamless."))
+            return _Continuity()
+        nxt_still = await session.get(Asset, nxt.selected_image_id)
+        if nxt_still is None:
+            return _Continuity()
+        return _Continuity(
+            mode=MotionContinuity.LAST_FRAME,
+            last_frame_key=nxt_still.storage_key,
+            last_frame_mime=nxt_still.mime or "image/png",
+            last_frame_checksum=nxt_still.checksum or "")
+
+    # CHAINED.
+    prev, _ = await _neighbours(session, shot)
+    if prev is None:
+        return _Continuity()               # first shot of the film; nothing to chain from
+    prev_clip = (await session.get(Asset, prev.selected_clip_id)
+                 if prev.selected_clip_id else None)
+    if not clip_is_fresh(prev, prev_clip):
+        warnings.append(Note(
+            "continuity_previous_clip_missing",
+            "Chaining starts this clip on the previous shot's closing frame, "
+            "and the previous shot has no current clip yet. This shot will be "
+            "cut to it instead. Chained shots have to be generated in film "
+            "order -- generate the earlier shot first, then this one."))
+        return _Continuity()
+    warnings.append(Note(
+        "continuity_chained",
+        f"This clip starts from the previous shot's closing frame, so its own "
+        f"approved still is not sent to {caps.display_name} -- the join is "
+        f"seamless, but the composition you approved for this shot is not "
+        f"what the model starts from. Regenerating the previous shot also "
+        f"invalidates this one, and every shot chained after it."))
+    return _Continuity(
+        mode=MotionContinuity.CHAINED,
+        chain_from_clip_key=prev_clip.storage_key,
+        chain_from_checksum=prev_clip.checksum or "")
+
+
 async def plan_motion(session: AsyncSession, shot: Shot, project: Project, *,
                       model_key: str | None = None,
                       duration_s: float | None = None,
@@ -381,6 +514,8 @@ async def plan_motion(session: AsyncSession, shot: Shot, project: Project, *,
             f"the clip will be whatever {caps.display_name} invents. Add "
             f"subject or environment motion to direct it."))
 
+    cont = await _resolve_continuity(session, shot, project, caps, warnings)
+
     seed = int(shot.seed) if caps.supports_seed else None
     checksum = still.checksum if still else ""
     return MotionPlan(
@@ -388,10 +523,19 @@ async def plan_motion(session: AsyncSession, shot: Shot, project: Project, *,
         requested_duration_s=intent_s, resolved_duration_s=resolved_d,
         resolved_resolution=resolved_r, aspect_ratio=project.aspect_ratio,
         seed=seed, first_frame_checksum=checksum,
-        input_hash=prompt.hash(model_key=caps.model_key,
-                               duration_s=resolved_d, resolution=resolved_r,
-                               seed=seed, first_frame_checksum=checksum),
+        input_hash=prompt.hash(
+            model_key=caps.model_key,
+            duration_s=resolved_d, resolution=resolved_r,
+            seed=seed, first_frame_checksum=checksum,
+            last_frame_checksum=cont.last_frame_checksum,
+            chain_from_checksum=cont.chain_from_checksum),
         estimated_cost_cents=caps.pricing.cents(resolved_d, resolved_r),
+        continuity=cont.mode,
+        last_frame_key=cont.last_frame_key,
+        last_frame_mime=cont.last_frame_mime,
+        last_frame_checksum=cont.last_frame_checksum,
+        chain_from_clip_key=cont.chain_from_clip_key,
+        chain_from_checksum=cont.chain_from_checksum,
         warnings=warnings, blocking=blocking)
 
 

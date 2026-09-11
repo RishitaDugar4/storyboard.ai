@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base, Timestamps, UUIDPk
+from .content import MotionContinuity
 
 
 class ProjectStage(enum.StrEnum):
@@ -58,6 +59,13 @@ class Project(Base, UUIDPk, Timestamps):
     default_model_key: Mapped[str | None] = mapped_column(String(64),
                                                           nullable=True)
     allow_premium: Mapped[bool] = mapped_column(default=False, nullable=False)
+    #: How shot boundaries are joined; see MotionContinuity. Stored as a plain
+    #: string rather than a native enum for the same reason default_model_key
+    #: is: these are motion *defaults* that will gain values as the catalogue
+    #: grows, and a new value should be a deploy, not an ALTER TYPE.
+    motion_continuity: Mapped[str] = mapped_column(
+        String(16), default=MotionContinuity.NONE.value,
+        server_default=MotionContinuity.NONE.value, nullable=False)
 
     budget_cents: Mapped[int] = mapped_column(Integer, default=6000,
                                               nullable=False)

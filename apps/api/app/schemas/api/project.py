@@ -5,6 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ...db.models.content import MotionContinuity
 from ...db.models.project import ProjectStage
 
 ASPECT_RATIOS = ("16:9", "9:16")
@@ -27,6 +28,7 @@ class ProjectUpdate(BaseModel):
     default_model_key: str | None = Field(default=None, max_length=64)
     narrator_voice_id: str | None = Field(default=None, max_length=40)
     allow_premium: bool | None = None
+    motion_continuity: MotionContinuity | None = None
     budget_cents: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
@@ -43,6 +45,7 @@ class ProjectRead(BaseModel):
     default_model_key: str | None
     narrator_voice_id: str | None
     allow_premium: bool
+    motion_continuity: MotionContinuity
     budget_cents: int
     spent_cents: int
     share_token: str | None

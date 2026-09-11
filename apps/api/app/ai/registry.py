@@ -88,7 +88,7 @@ def reset() -> None:
 #: Which VideoPort implementation serves each catalogue `adapter` value. The
 #: catalogue names the adapter; this maps that name to code. Adding a fal-hosted
 #: model touches neither -- it is a catalogue row and nothing else.
-_VIDEO_ADAPTERS = {"fal"}
+_VIDEO_ADAPTERS = {"fal", "veo"}
 
 
 @lru_cache(maxsize=4)
@@ -106,6 +106,10 @@ def get_video_port(adapter: str = "fal"):
     if adapter == "fal":
         from .adapters.fal_video import FalVideoAdapter
         return FalVideoAdapter(os.getenv("FAL_KEY", ""))
+    if adapter == "veo":
+        from .adapters.veo_video import VeoVideoAdapter
+        return VeoVideoAdapter(
+            os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY", ""))
     raise ValueError(
         f"no VideoPort implementation for adapter {adapter!r}. Implemented: "
         f"{', '.join(sorted(_VIDEO_ADAPTERS))}. The catalogue entry naming it "

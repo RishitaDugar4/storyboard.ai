@@ -5,9 +5,9 @@ table -- a failure mode that only shows up in production.
 """
 from .assets import (Asset, AssetKind, AssetSource, Render,
                      RenderProfile)
-from .content import (CameraMove, Character, Location, MotionMode,
-                      NarrationLine, Scene, Shot, ShotType, StoryAnalysisDoc,
-                      StoryboardDoc, StoryInput)
+from .content import (CameraMove, Character, Location, MotionContinuity,
+                      MotionMode, NarrationLine, Scene, Shot, ShotType,
+                      StoryAnalysisDoc, StoryboardDoc, StoryInput)
 from .jobs import ACTIVE, TERMINAL, AICall, Job, JobEvent, JobStatus
 from .project import Project, ProjectStage
 from .user import User
@@ -17,6 +17,6 @@ __all__ = [
     "Asset", "AssetKind", "AssetSource", "Render", "RenderProfile",
     "StoryInput", "StoryAnalysisDoc", "StoryboardDoc",
     "Character", "Location", "Scene", "Shot", "NarrationLine",
-    "ShotType", "CameraMove", "MotionMode",
+    "ShotType", "CameraMove", "MotionMode", "MotionContinuity",
     "Job", "JobEvent", "JobStatus", "AICall", "ACTIVE", "TERMINAL",
 ]

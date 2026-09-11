@@ -12,6 +12,7 @@ from the catalogue via `plan_motion`.
 """
 from __future__ import annotations
 
+import logging
 import tempfile
 import uuid
 from pathlib import Path
@@ -19,15 +20,18 @@ from pathlib import Path
 from ...ai.ports import AIError, AIErrorKind, Submission, VideoRequest
 from ...ai.registry import get_video_port
 from ...db.ids import uuid7
-from ...db.models import (AICall, Asset, AssetKind, AssetSource, MotionMode,
-                          Project, ProjectStage, Shot)
+from ...db.models import (AICall, Asset, AssetKind, AssetSource,
+                          MotionContinuity, MotionMode, Project, ProjectStage,
+                          Shot)
 from ...db.session import get_sessionmaker
-from ...render.ffmpeg import probe
+from ...render.ffmpeg import FFmpegError, extract_tail_frame, probe
 from ...services.motion_service import cached_clip, plan_motion
 from ...services.still_service import (BudgetExceeded, PriceUnknown,
                                        check_budget)
 from ...storage import asset_key, get_storage
 from .. import service as jobs
+
+log = logging.getLogger("hbz.motion")
 
 #: How long a clip may differ from what was asked for before it is rejected.
 #: The bake-off measured real drift of +42ms (Kling) and -125ms (Hailuo), so
@@ -54,6 +58,38 @@ def _poll_scale() -> float:
         return max(0.0, float(os.getenv("MOTION_POLL_SCALE", "1")))
     except ValueError:
         return 1.0
+
+
+class ChainFrameUnavailable(RuntimeError):
+    pass
+
+
+async def closing_frame_of(clip_key: str) -> bytes:
+    """The last frame of a stored clip, as PNG bytes.
+
+    The whole mechanism of a chained join: shot N ends on this image and shot
+    N+1 begins on it, so the boundary between them is one repeated frame
+    rather than a cut between two separately-imagined pictures.
+
+    Raises rather than returning None on failure. A chain that quietly falls
+    back to the approved still would produce a visible cut in a film the user
+    asked to be continuous, and -- because the clip is paid for either way --
+    they would find out after the money was spent.
+    """
+    storage = get_storage()
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        src = storage.local_path(clip_key)
+        if src is None:
+            # Remote storage: pull it down, since ffmpeg needs a real file.
+            src = work / "previous.mp4"
+            src.write_bytes(await storage.get(clip_key))
+        dest = work / "tail.png"
+        try:
+            extract_tail_frame(src, dest)
+        except (FFmpegError, RuntimeError) as exc:
+            raise ChainFrameUnavailable(str(exc)) from exc
+        return dest.read_bytes()
 
 
 # --------------------------------------------------------------------------- #
@@ -115,6 +151,39 @@ async def submit_motion_job(job_id: uuid.UUID) -> None:
 
             still = await session.get(Asset, shot.selected_image_id)
             frame = await get_storage().get(still.storage_key)
+            frame_mime = still.mime
+            frame_origin = still.storage_key.split("/")[-1]
+
+            # A chained shot opens on the previous clip's closing frame
+            # instead of its own still. Read it here rather than in planning:
+            # planning must stay cheap enough to run on every edit that
+            # touches a shot, and this decodes a video.
+            if plan.chain_from_clip_key:
+                try:
+                    frame = await closing_frame_of(plan.chain_from_clip_key)
+                except ChainFrameUnavailable as exc:
+                    await jobs.fail(
+                        session, job, "chain_frame_unreadable",
+                        f"This shot is chained to the previous one, but its "
+                        f"closing frame could not be read: {exc}. Nothing was "
+                        f"submitted or charged. Re-generate the previous shot, "
+                        f"or turn continuity off for this project.",
+                        retryable=False)
+                    return
+                frame_mime = "image/png"
+                frame_origin = f"tail of {plan.chain_from_clip_key.split('/')[-1]}"
+
+            # The frame the model must land on, when it has such an input.
+            last_frame = (await get_storage().get(plan.last_frame_key)
+                          if plan.last_frame_key else None)
+
+            log.info("SHOT %s -> KEYFRAME %s (%d bytes%s) continuity=%s%s",
+                     str(shot.id)[:8], frame_origin, len(frame),
+                     f", {still.width}x{still.height}"
+                     if not plan.chain_from_clip_key else "",
+                     plan.continuity.value,
+                     f" last_frame={plan.last_frame_key.split('/')[-1]}"
+                     if plan.last_frame_key else "")
 
             port = get_video_port(plan.caps.adapter)
             await jobs.progress(
@@ -125,17 +194,25 @@ async def submit_motion_job(job_id: uuid.UUID) -> None:
             try:
                 sub = await port.submit(VideoRequest(
                     model_key=plan.caps.model_key, model_id=plan.caps.model_id,
-                    first_frame=frame, first_frame_mime=still.mime,
+                    first_frame=frame, first_frame_mime=frame_mime,
                     prompt=plan.prompt.positive,
                     negative_prompt=plan.prompt.negative or None,
                     reference_images=[],
                     duration_s=plan.resolved_duration_s,
                     resolution=plan.resolved_resolution,
-                    aspect_ratio=plan.aspect_ratio, seed=plan.seed))
+                    aspect_ratio=plan.aspect_ratio, seed=plan.seed,
+                    last_frame=last_frame,
+                    last_frame_mime=plan.last_frame_mime or None))
             except AIError as exc:
                 await jobs.fail(session, job, f"{exc.kind}:{exc.code}",
                                 exc.detail, retryable=exc.retryable)
                 return
+
+            log.info("I2V SUBMIT       shot=%s model=%s duration=%gs "
+                     "est=%.2f USD provider_job=%s",
+                     str(shot.id)[:8], plan.caps.model_key,
+                     plan.resolved_duration_s,
+                     plan.estimated_cost_cents / 100, sub.provider_job_id)
 
             # Durable before the first poll. Everything after this point can
             # crash and be recovered; before it, nothing has been bought.
@@ -148,6 +225,7 @@ async def submit_motion_job(job_id: uuid.UUID) -> None:
                            "input_hash": plan.input_hash,
                            "resolved_duration_s": plan.resolved_duration_s,
                            "estimated_cost_cents": plan.estimated_cost_cents,
+                           "continuity": plan.continuity.value,
                            "polls": 0}
             job.status = jobs.JobStatus.AWAITING_PROVIDER
             job.message = f"waiting on {plan.caps.display_name}"
@@ -229,6 +307,8 @@ async def poll_motion_job(job_id: uuid.UUID) -> None:
                                       defer_s=delay * _poll_scale())
             return
 
+        log.info("I2V COMPLETE     job=%s after %d poll(s); downloading",
+                 str(job.id)[:8], polls)
         job.payload = {**job.payload, "video_uri": state.video_uri,
                        "reported_cost_cents": state.reported_cost_cents,
                        "model_version": state.model_version}
@@ -341,6 +421,8 @@ async def download_motion_job(job_id: uuid.UUID) -> None:
                 input_hash=job.payload["input_hash"],
                 params={"prompt": job.payload.get("prompt", ""),
                         "model_id": caps.model_id,
+                        "continuity": job.payload.get(
+                            "continuity", MotionContinuity.NONE.value),
                         "requested_duration_s": expected,
                         "provider_job_id": job.payload.get("provider_job_id"),
                         "model_version": job.payload.get("model_version"),
@@ -362,6 +444,12 @@ async def download_motion_job(job_id: uuid.UUID) -> None:
             shot.motion_mode = MotionMode.GENERATED
             if project.stage in (ProjectStage.NARRATION, ProjectStage.PREVIEWED):
                 project.stage = ProjectStage.MOTION
+
+            log.info("CLIP PATH        shot=%s file=%s measured=%dms %sx%s "
+                     "fps=%s cost=%.2f USD",
+                     str(shot.id)[:8], key, measured["duration_ms"],
+                     measured["width"], measured["height"], measured["fps"],
+                     cost / 100)
 
             await jobs.succeed(session, job, {
                 "asset_id": str(aid), "cached": False,

@@ -10,6 +10,7 @@ correctness of the film rests almost entirely on this function.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 
@@ -23,6 +24,8 @@ from ..render.timeline import (AudioCue, AudioMix, Card, CameraMove, Clip,
                                KenBurns, Profile, Source, SourceKind, Timeline)
 from ..storage import get_storage
 from .motion_service import clip_is_fresh
+
+log = logging.getLogger("hbz.timeline")
 
 #: The image lands a beat before the voice starts, and holds a beat after.
 LEAD_IN_MS = 300
@@ -210,6 +213,14 @@ async def build_timeline(session: AsyncSession, project: Project, *,
                 kenburns=KenBurns(move=CameraMove(str(shot.camera_move))),
                 start_ms=cursor, duration_ms=duration_ms, tail_freeze_ms=0,
                 audio=cues, label=scene.title))
+        chosen = clips[-1]
+        log.info("TIMELINE SOURCE  shot=%s scene=%r kind=%s file=%s "
+                 "duration=%dms%s",
+                 str(shot.id)[:8], scene.title[:24],
+                 chosen.source.kind.value.upper(), chosen.source.path.name,
+                 chosen.duration_ms,
+                 f" native={chosen.source.native_duration_ms}ms"
+                 if chosen.source.kind is SourceKind.CLIP else " (kenburns)")
         cursor += duration_ms
 
     if blocking:
@@ -218,6 +229,12 @@ async def build_timeline(session: AsyncSession, project: Project, *,
     music = None
     if project.music_track_key:
         music = storage.local_path(project.music_track_key)
+
+    n_clip = sum(1 for c in clips if c.source.kind is SourceKind.CLIP)
+    log.info("TIMELINE BUILT   %d shot(s): %d animated CLIP, %d static STILL%s",
+             len(clips), n_clip, len(clips) - n_clip,
+             "   <-- NO MOTION: this render will be a slideshow"
+             if n_clip == 0 else "")
 
     timeline = Timeline(
         profile=profile, title=project.title, width=width, height=height,

@@ -7,12 +7,16 @@ generated, some Ken Burns over stills -- concatenates without special cases.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import kenburns
 from .ffmpeg import ProgressFn, run
 from .timeline import Clip, Profile, SourceKind, Timeline
+
+
+log = logging.getLogger("hbz.render")
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,11 @@ def normalize_clip(
         # and invent dialogue that would fight the narrator.
         args = ["-y", "-i", str(src), "-an",
                 "-vf", clip_filter_chain(clip, ep)]
+
+    log.info("FFMPEG INPUT     shot=%s kind=%s %s file=%s",
+             clip.shot_id[:8], clip.source.kind.value.upper(),
+             "(-loop 1, still image)" if clip.source.kind is SourceKind.STILL
+             else "(video stream)", src.name)
 
     args += ["-r", str(ep.fps), "-c:v", "libx264", "-preset", ep.preset,
              "-crf", str(ep.crf), "-pix_fmt", "yuv420p", str(dest)]

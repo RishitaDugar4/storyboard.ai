@@ -150,21 +150,40 @@ class ComposedMotion:
     fragments: list[tuple[str, str]]
 
     def hash(self, *, model_key: str, duration_s: float, resolution: str,
-             seed: int | None, first_frame_checksum: str) -> str:
+             seed: int | None, first_frame_checksum: str,
+             last_frame_checksum: str = "",
+             chain_from_checksum: str = "") -> str:
         """Identity of this generation's inputs.
 
         The keyframe's checksum is in here, so approving a different still for
         the shot correctly invalidates the clip that was animated from the old
         one -- the failure that would otherwise ship a film whose motion does
         not match its own frames.
+
+        The two continuity inputs obey the same rule for the same reason: a
+        clip told to end on the next shot's still is invalidated when that
+        still is replaced, and a chained clip is invalidated when the clip it
+        was chained from is regenerated. The second one cascades down the
+        chain, which is correct and is why `plan_motion` warns about it.
+
+        Both are omitted from the payload entirely when empty rather than
+        hashed as "". That keeps every hash computed before continuity existed
+        byte-identical, so turning this feature on does not invalidate -- and
+        charge for regenerating -- every clip in every existing project.
         """
-        return hashlib.sha256(json.dumps({
+        payload = {
             "positive": self.positive, "negative": self.negative,
             "model_key": model_key, "duration_s": round(duration_s, 3),
             "resolution": resolution, "seed": seed,
             "first_frame": first_frame_checksum,
             "composer": MOTION_COMPOSER_VERSION,
-        }, sort_keys=True).encode()).hexdigest()
+        }
+        if last_frame_checksum:
+            payload["last_frame"] = last_frame_checksum
+        if chain_from_checksum:
+            payload["chain_from"] = chain_from_checksum
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 def compose_motion_prompt(

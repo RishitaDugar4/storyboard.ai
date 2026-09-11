@@ -20,7 +20,7 @@ from enum import StrEnum
 from typing import Any, Iterable, Literal, Mapping
 
 # Bump when any entry changes. Recorded on every generation for reproducibility.
-CATALOG_VERSION = "2026-08-26.1"
+CATALOG_VERSION = "2026-09-10.1"
 
 
 class ModelTier(StrEnum):
@@ -118,8 +118,10 @@ class Pricing:
         return ((today or date.today()) - self.verified_at).days
 
 
-#: Legacy payload shape, used only by EXPERIMENTAL entries whose real schema
-#: has not been read yet. ACTIVE entries must declare their own field list.
+#: Legacy payload shape, used only by entries whose real schema has not been
+#: read yet. Note the snake_case: these are fal's field names. A provider with
+#: a different vocabulary (Veo's parameters are camelCase) cannot use this
+#: fallback meaningfully and must declare its own list.
 GENERIC_REQUEST_FIELDS = frozenset({
     "prompt", "image_url", "duration", "resolution", "aspect_ratio",
     "negative_prompt", "seed",
@@ -166,9 +168,28 @@ class VideoModelCaps:
     resolution_selectable: bool = True
     aspect_selectable: bool = True
 
+    #: The provider's wire name for a final-frame input ("lastFrame",
+    #: "tail_image_url"), or None when the endpoint has no such input.
+    #:
+    #: Naming it here IS the declaration of support -- there is deliberately no
+    #: second `supports_last_frame` flag to fall out of sync with it. The
+    #: adapter writes this key directly, so enabling continuity on a new model
+    #: is one string in this file and no code anywhere.
+    last_frame_field: str | None = None
+
     docs_url: str = ""
     pinned_version: str | None = None   # provider-reported version, if any
     notes: str = ""
+
+    @property
+    def supports_last_frame(self) -> bool:
+        """Can this model be told which frame to end on?
+
+        The only mechanism in the catalogue that joins two shots invisibly.
+        Everything else -- reference images, a shared seed -- makes shots
+        *resemble* each other; this makes them continuous.
+        """
+        return self.last_frame_field is not None
 
     @staticmethod
     def _height(label: str) -> int:
@@ -196,6 +217,8 @@ class VideoModelCaps:
             f"{self.max_reference_images} refs" if self.max_reference_images
             else "no refs",
         ]
+        if self.supports_last_frame:
+            chips.append("last frame")
         if not self.supports_negative_prompt:
             chips.append("no negative prompt")
         if not self.resolution_selectable:
@@ -282,7 +305,12 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
               "and no aspect_ratio inputs -- output follows the input image, so "
               "the approved first frame is the ONLY consistency anchor. "
               "Output resolution is unverified; the first run's ffprobe settles "
-              "it. cfg_scale (0-1) is the prompt-adherence lever.",
+              "it. cfg_scale (0-1) is the prompt-adherence lever. "
+              "No last_frame_field: earlier Kling revisions exposed "
+              "`tail_image_url`, but it is NOT in this endpoint's verified "
+              "schema. Confirm against the model page before setting it -- an "
+              "undeclared field is a 422, and the adapter plumbing is already "
+              "in place, so enabling it is one string here.",
     ),
     # ---------------- mid tier ----------------------------------------------
     VideoModelCaps(
@@ -372,7 +400,7 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
         display_name="Veo 3.1",
         tier=ModelTier.PREMIUM,
         adapter="veo",
-        status=ModelStatus.ACTIVE,
+        status=ModelStatus.EXPERIMENTAL,
         image_to_video=True,
         durations=DurationSupport("discrete", values=(4.0, 6.0, 8.0)),
         resolutions=("720p", "1080p"),
@@ -381,6 +409,10 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
         supports_negative_prompt=False,
         supports_seed=True,
         audio=AudioBehavior.ALWAYS_ON,
+        request_fields=frozenset({"durationSeconds", "resolution",
+                                  "aspectRatio", "personGeneration", "seed",
+                                  "referenceImages"}),
+        last_frame_field="lastFrame",
         pricing=Pricing(
             kind="per_second",
             usd={"720p": 0.40, "1080p": 0.40},
@@ -406,7 +438,7 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
         display_name="Veo 3.1 Fast",
         tier=ModelTier.STANDARD,
         adapter="veo",
-        status=ModelStatus.ACTIVE,
+        status=ModelStatus.EXPERIMENTAL,
         image_to_video=True,
         durations=DurationSupport("discrete", values=(4.0, 6.0, 8.0)),
         resolutions=("720p", "1080p"),
@@ -415,6 +447,10 @@ CATALOG: dict[str, VideoModelCaps] = index_by_key([
         supports_negative_prompt=False,
         supports_seed=True,
         audio=AudioBehavior.ALWAYS_ON,
+        request_fields=frozenset({"durationSeconds", "resolution",
+                                  "aspectRatio", "personGeneration", "seed",
+                                  "referenceImages"}),
+        last_frame_field="lastFrame",
         pricing=Pricing(
             kind="per_second",
             usd={"720p": 0.10, "1080p": 0.12},

@@ -56,10 +56,19 @@ def test_every_active_model_can_animate_an_image():
 def test_request_fields_are_declared_per_model():
     """The bake-off found three separate 422s from sending fields an endpoint
     does not define. The allowlist makes that impossible by construction, so
-    it must actually be populated."""
+    it must actually be populated.
+
+    Its scope differs by adapter: fal takes one flat body, so `prompt` is in
+    the allowlist; Veo sends prompt and keyframe in `instances` and the
+    allowlist governs `parameters` only.
+    """
     for caps in CATALOG.values():
         assert caps.request_fields, caps.model_key
-        assert "prompt" in caps.request_fields, caps.model_key
+        if caps.adapter == "fal":
+            assert "prompt" in caps.request_fields, caps.model_key
+        elif caps.adapter == "veo":
+            assert "prompt" not in caps.request_fields, caps.model_key
+            assert "durationSeconds" in caps.request_fields, caps.model_key
 
 
 def test_no_model_declares_a_duration_it_cannot_produce():
@@ -97,9 +106,14 @@ def test_experimental_models_are_not_offered_by_default():
 
 
 def test_premium_is_opt_in():
+    """Two independent gates, and Veo currently trips both: it is premium AND
+    its request shape has never been exercised against the live API."""
     assert "veo-3.1-standard-i2v" not in {c.model_key for c in selectable_models()}
-    assert "veo-3.1-standard-i2v" in {
+    assert "veo-3.1-standard-i2v" not in {
         c.model_key for c in selectable_models(allow_premium=True)}
+    assert "veo-3.1-standard-i2v" in {
+        c.model_key for c in selectable_models(allow_premium=True,
+                                               allow_experimental=True)}
 
 
 def test_cheapest_capable_is_actually_the_cheapest():
@@ -244,6 +258,47 @@ def test_hash_changes_with_the_model_and_the_duration():
     assert m.hash(**{**base, "duration_s": 10.0}) != m.hash(**base)
 
 
+# ---- continuity: the join between one shot and the next -------------------
+def test_hash_changes_when_the_closing_frame_changes():
+    """A clip told to end on the next shot's still must go stale when that
+    still is replaced -- otherwise the join it was generated for no longer
+    exists and the seam reappears in a film that reports itself current."""
+    m = compose_motion_prompt(subject_motion="She blinks")
+    base = dict(model_key="kling-2.5-turbo-i2v", duration_s=5.0,
+                resolution="1080p", seed=None, first_frame_checksum="a")
+    assert m.hash(**base, last_frame_checksum="x") != \
+           m.hash(**base, last_frame_checksum="y")
+    assert m.hash(**base, chain_from_checksum="x") != \
+           m.hash(**base, chain_from_checksum="y")
+
+
+def test_continuity_off_hashes_exactly_as_it_did_before_continuity_existed():
+    """The regression this guards is expensive, not cosmetic. If the new
+    inputs were hashed as "" instead of omitted, every clip in every existing
+    project would go stale the moment this code shipped -- and a clip is
+    roughly fourteen times a still to regenerate."""
+    m = compose_motion_prompt(subject_motion="She blinks")
+    base = dict(model_key="kling-2.5-turbo-i2v", duration_s=5.0,
+                resolution="1080p", seed=None, first_frame_checksum="a")
+    assert m.hash(**base) == m.hash(**base, last_frame_checksum="",
+                                    chain_from_checksum="")
+
+
+def test_last_frame_support_is_declared_once_not_twice():
+    """`supports_last_frame` is derived from the wire field rather than
+    stored beside it, so the two can never disagree."""
+    for caps in CATALOG.values():
+        assert caps.supports_last_frame == (caps.last_frame_field is not None)
+        if caps.supports_last_frame:
+            assert "last frame" in caps.capability_chips()
+
+
+def test_at_least_one_model_can_be_told_where_to_end():
+    """Without one, the seamless-join path is unreachable and this whole
+    mechanism is dead code."""
+    assert any(c.supports_last_frame for c in CATALOG.values())
+
+
 # ---- the adapter sends only what the endpoint declares --------------------
 async def test_the_payload_is_filtered_to_declared_fields():
     """Kling declares no seed, resolution or aspect_ratio input. Sending them
@@ -281,6 +336,114 @@ async def test_the_payload_is_filtered_to_declared_fields():
     assert sent["image_url"].startswith("data:image/png;base64,")
 
 
+async def test_a_closing_frame_is_sent_only_when_the_model_declares_one():
+    """Kling names no closing-frame field, so passing one must not put it on
+    the wire -- an undeclared field is a 422 and a wasted round trip."""
+    import app.ai.adapters.fal_video as fv
+
+    sent: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"request_id": "r1", "status_url": "s", "response_url": "r"}
+
+    class FakeClient:
+        async def post(self, url, json):
+            sent.update(json)
+            return FakeResponse()
+
+    adapter = object.__new__(fv.FalVideoAdapter)
+    adapter._client = FakeClient()
+    caps = get_caps("kling-2.5-turbo-i2v")
+    assert not caps.supports_last_frame
+    await adapter.submit(VideoRequest(
+        model_key=caps.model_key, model_id=caps.model_id,
+        first_frame=b"\x89PNG", first_frame_mime="image/png",
+        prompt="p", negative_prompt="n", reference_images=[],
+        duration_s=5.0, resolution="1080p", aspect_ratio="16:9", seed=42,
+        last_frame=b"\x89PNGtail", last_frame_mime="image/png"))
+    assert not any("tail" in k or "last" in k.lower() for k in sent)
+
+
+async def test_declaring_the_field_is_all_it_takes_to_send_it(monkeypatch):
+    """Enabling continuity on a new fal model must be one string in the
+    catalogue and no code anywhere -- that is the whole design. This proves
+    the adapter honours a declaration it has never seen before."""
+    import dataclasses
+
+    import app.ai.adapters.fal_video as fv
+
+    sent: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"request_id": "r1", "status_url": "s", "response_url": "r"}
+
+    class FakeClient:
+        async def post(self, url, json):
+            sent.update(json)
+            return FakeResponse()
+
+    base = get_caps("kling-2.5-turbo-i2v")
+    declared = dataclasses.replace(base, last_frame_field="tail_image_url")
+    monkeypatch.setattr(fv, "get_caps", lambda key: declared)
+
+    adapter = object.__new__(fv.FalVideoAdapter)
+    adapter._client = FakeClient()
+    await adapter.submit(VideoRequest(
+        model_key=base.model_key, model_id=base.model_id,
+        first_frame=b"\x89PNG", first_frame_mime="image/png",
+        prompt="p", negative_prompt="n", reference_images=[],
+        duration_s=5.0, resolution="1080p", aspect_ratio="16:9", seed=42,
+        last_frame=b"\x89PNGtail", last_frame_mime="image/png"))
+    assert sent["tail_image_url"].startswith("data:image/png;base64,")
+
+
+def test_veo_puts_the_closing_frame_beside_the_opening_one():
+    """Veo's closing frame is an *instance* field, a sibling of `image`, not a
+    generation parameter. Filtering it through `request_fields` -- which is the
+    parameters allowlist -- would drop it silently and produce a normal-looking
+    clip that simply does not join."""
+    import app.ai.adapters.veo_video as vv
+
+    caps = get_caps("veo-3.1-fast-i2v")
+    assert caps.supports_last_frame
+    adapter = object.__new__(vv.VeoVideoAdapter)
+    adapter._person_generation = "allow_adult"
+    payload = adapter.build_payload(VideoRequest(
+        model_key=caps.model_key, model_id=caps.model_id,
+        first_frame=b"\x89PNGhead", first_frame_mime="image/png",
+        prompt="p", negative_prompt=None, reference_images=[],
+        duration_s=8.0, resolution="1080p", aspect_ratio="16:9", seed=7,
+        last_frame=b"\x89PNGtail", last_frame_mime="image/png"))
+    instance = payload["instances"][0]
+    assert "lastFrame" in instance
+    assert instance["lastFrame"] != instance["image"]
+    assert "lastFrame" not in payload["parameters"]
+
+
+def test_veo_omits_the_closing_frame_when_there_is_none():
+    """Most shots have no join to make -- the last shot of the film, or a
+    project with continuity off. Sending an empty key would be a 400."""
+    import app.ai.adapters.veo_video as vv
+
+    caps = get_caps("veo-3.1-fast-i2v")
+    adapter = object.__new__(vv.VeoVideoAdapter)
+    adapter._person_generation = "allow_adult"
+    payload = adapter.build_payload(VideoRequest(
+        model_key=caps.model_key, model_id=caps.model_id,
+        first_frame=b"\x89PNGhead", first_frame_mime="image/png",
+        prompt="p", negative_prompt=None, reference_images=[],
+        duration_s=8.0, resolution="1080p", aspect_ratio="16:9", seed=7))
+    assert "lastFrame" not in payload["instances"][0]
+
+
 # ---- validation: measure what arrived, never trust the request ------------
 @needs_ffmpeg
 async def test_a_real_clip_validates_and_reports_measured_truth():
@@ -297,6 +460,44 @@ async def test_a_real_clip_validates_and_reports_measured_truth():
     assert abs(measured["duration_ms"] - 5000) <= DURATION_TOLERANCE_MS
     assert measured["width"] and measured["height"]
     assert measured["fps"]
+
+
+@needs_ffmpeg
+async def test_a_clips_closing_frame_can_be_read_back(tmp_path):
+    """The mechanism a chained join is built on. If this cannot produce a
+    readable image, every chained shot fails at submit time."""
+    from app.render.ffmpeg import extract_tail_frame, probe
+
+    adapter = FakeVideoAdapter()
+    sub = await adapter.submit(VideoRequest(
+        model_key="k", model_id="x", first_frame=b"",
+        first_frame_mime="image/png", prompt="p", negative_prompt=None,
+        reference_images=[], duration_s=3.0, resolution="1080p",
+        aspect_ratio="16:9", seed=None))
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes((await adapter.fetch(await adapter.poll(sub))).data)
+
+    frame = extract_tail_frame(clip, tmp_path / "tail.png")
+    assert frame.exists() and frame.stat().st_size > 0
+    # PNG, not JPEG: the frame is re-encoded twice more downstream, and
+    # starting that chain lossy puts a visible step exactly at the seam.
+    assert frame.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    info = probe(frame)
+    assert info.ok and info.width and info.height
+
+
+def test_reading_a_closing_frame_from_a_non_clip_fails_loudly(tmp_path):
+    """Never silently: a chain that falls back to the approved still puts a
+    visible cut in a film the user paid to have joined."""
+    from app.render.ffmpeg import FFmpegError, extract_tail_frame
+
+    junk = tmp_path / "junk.mp4"
+    junk.write_bytes(b"\x00" * 4096)
+    with pytest.raises(FFmpegError):
+        extract_tail_frame(junk, tmp_path / "tail.png")
+
+    with pytest.raises(FFmpegError, match="missing or empty"):
+        extract_tail_frame(tmp_path / "absent.mp4", tmp_path / "tail.png")
 
 
 def test_a_truncated_download_is_rejected():
@@ -659,3 +860,310 @@ async def test_each_poll_tick_is_a_distinct_delivery_to_the_broker(client):
     assert len(set(seen)) == len(seen), (
         f"poll ticks reused a broker key: {seen}. arq would drop every tick "
         f"after the first and the paid clip would never be collected.")
+
+
+# --------------------------------------------------------------------------- #
+# Veo. This adapter has NEVER made a successful call (ADR-001: "0 calls ... its
+# adapter has never executed"), so everything asserted here is structural: the
+# request it would build, not a response it has seen. That distinction is the
+# point -- these tests stop the payload regressing, they do not claim the
+# endpoint accepts it.
+# --------------------------------------------------------------------------- #
+def _veo_adapter():
+    from app.ai.adapters.veo_video import VeoVideoAdapter
+    a = object.__new__(VeoVideoAdapter)
+    a._key = "AIza" + "x" * 35
+    a._person_generation = "allow_adult"
+    return a
+
+
+def _veo_request(model_key="veo-3.1-fast-i2v", **kw):
+    caps = get_caps(model_key)
+    defaults = dict(
+        model_key=caps.model_key, model_id=caps.model_id,
+        first_frame=b"\x89PNG", first_frame_mime="image/png",
+        prompt="she turns toward the door", negative_prompt=None,
+        reference_images=[], duration_s=6.0, resolution="720p",
+        aspect_ratio="16:9", seed=None)
+    return VideoRequest(**{**defaults, **kw})
+
+
+def test_veo_payload_uses_the_documented_predict_shape():
+    body = _veo_adapter().build_payload(_veo_request())
+    assert set(body) == {"instances", "parameters"}
+    assert len(body["instances"]) == 1
+    inst = body["instances"][0]
+    assert inst["prompt"] == "she turns toward the door"
+    # The keyframe travels inline, base64, with its mime -- Veo takes no URL.
+    assert inst["image"]["mimeType"] == "image/png"
+    assert inst["image"]["bytesBase64Encoded"]
+
+
+def test_veo_payload_is_filtered_through_the_catalogue_allowlist():
+    """The gap this closes: the bake-off's Veo adapter built its parameters
+    dict unconditionally and consulted `caps` only for retention_hours. The
+    per-model allowlist -- introduced after Kling and Hailuo rejected fields
+    they do not declare -- was applied to the fal adapter only, so the same
+    class of 400 was still live on Veo."""
+    caps = get_caps("veo-3.1-fast-i2v")
+    body = _veo_adapter().build_payload(_veo_request(seed=42))
+    assert set(body["parameters"]) <= set(caps.request_fields) | set(caps.extra_params)
+
+
+def test_veo_allowlist_is_in_veos_own_vocabulary():
+    """Veo's parameters are camelCase; the generic fallback is fal's
+    snake_case. An unfiltered fallback here would have matched nothing at all,
+    which is a silent no-op rather than a visible error."""
+    from app.ai.catalog import GENERIC_REQUEST_FIELDS
+    for key in ("veo-3.1-fast-i2v", "veo-3.1-standard-i2v"):
+        caps = get_caps(key)
+        assert caps.request_fields != GENERIC_REQUEST_FIELDS, key
+        assert "durationSeconds" in caps.request_fields, key
+        assert "duration" not in caps.request_fields, key
+
+
+def test_veo_truncates_reference_images_to_the_declared_limit():
+    """Veo is the only model here that takes references at all. Sending more
+    than it accepts is a 400, and silently sending fewer is the honest
+    behaviour planning already warns about."""
+    caps = get_caps("veo-3.1-fast-i2v")
+    body = _veo_adapter().build_payload(
+        _veo_request(reference_images=[b"a", b"b", b"c", b"d", b"e"]))
+    assert len(body["parameters"]["referenceImages"]) == caps.max_reference_images
+
+
+def test_veo_models_are_experimental_until_a_call_succeeds():
+    """ACTIVE means the request shape is verified against the live API. Nothing
+    in this adapter has ever run, so ACTIVE would be a claim the project cannot
+    support -- and `plan_motion` must refuse to spend on it by default."""
+    for key in ("veo-3.1-fast-i2v", "veo-3.1-standard-i2v"):
+        assert get_caps(key).status is ModelStatus.EXPERIMENTAL, key
+    assert "veo-3.1-fast-i2v" not in {c.model_key for c in selectable_models(
+        allow_premium=True)}
+
+
+def test_an_ephemeral_token_is_named_as_such_not_reported_as_a_server_error():
+    """An AQ.… token authenticates for minutes and then 401s on everything,
+    which reads as a broken integration rather than an expired credential."""
+    from app.ai.adapters.veo_video import VeoVideoAdapter
+    from app.ai.ports import AIError
+    with pytest.raises(AIError) as err:
+        VeoVideoAdapter("AQ." + "x" * 50)
+    assert err.value.code == "not_an_api_key"
+    assert "expire" in err.value.detail.lower()
+
+
+def test_veo_classifies_a_policy_refusal_separately_from_a_bad_request():
+    """A person-generation refusal must never be retried as-is; a malformed
+    request is a catalogue bug. Both are HTTP 400."""
+    from app.ai.adapters.veo_video import _classify
+    from app.ai.ports import AIErrorKind
+    assert _classify(400, '{"message":"blocked by safety policy"}').kind \
+        is AIErrorKind.REFUSAL
+    assert _classify(400, '{"message":"invalid field"}').kind \
+        is AIErrorKind.INVALID
+    assert _classify(429, "").kind is AIErrorKind.QUOTA
+    assert _classify(404, "").code == "model_not_found"
+
+
+def test_veo_operation_errors_are_read_as_grpc_not_http():
+    """A failed long-running operation reports a google.rpc.Status, whose code
+    is a gRPC code. The bake-off adapter fed it to the HTTP classifier, which
+    turned every operation failure into `unknown:http_N` -- and an UNKNOWN is
+    not retryable, so a RESOURCE_EXHAUSTED blip would permanently fail a
+    generation that merely needed to wait."""
+    from app.ai.adapters.veo_video import _classify_operation_error
+    from app.ai.ports import AIErrorKind
+
+    quota = _classify_operation_error({"code": 8, "message": "quota"})
+    assert quota.kind is AIErrorKind.QUOTA
+    assert quota.retryable, "a quota error must back off, not fail the shot"
+
+    assert _classify_operation_error({"code": 7}).kind is AIErrorKind.AUTH
+    assert _classify_operation_error({"code": 16}).kind is AIErrorKind.AUTH
+    assert _classify_operation_error({"code": 3}).kind is AIErrorKind.INVALID
+    assert _classify_operation_error({"code": 14}).kind is AIErrorKind.TRANSIENT
+
+    # Safety refusals arrive as prose rather than a distinct code, and must
+    # never be retried as-is.
+    refusal = _classify_operation_error({"message": "blocked by safety policy"})
+    assert refusal.kind is AIErrorKind.REFUSAL
+    assert not refusal.retryable
+
+
+# --------------------------------------------------------------------------- #
+# Continuity, end to end.
+#
+# The failure these guard against is not a crash. It is a film that renders
+# perfectly and simply cuts where the user asked it to flow -- which is
+# invisible in every assertion except the ones below.
+# --------------------------------------------------------------------------- #
+async def _plan(client, shot_id, **body):
+    return (await client.post(f"/api/v1/shots/{shot_id}/motion:plan",
+                              json=body)).json()
+
+
+async def _set_continuity(client, pid, mode):
+    r = await client.patch(f"/api/v1/projects/{pid}",
+                           json={"motion_continuity": mode})
+    assert r.status_code == 200, r.text
+    assert r.json()["motion_continuity"] == mode
+
+
+async def test_continuity_is_off_unless_asked_for(client):
+    """The default must stay NONE. Turning joins on for every existing project
+    would change films people have already approved."""
+    pid, shots = await _project_with_stills(client)
+    body = (await client.get(f"/api/v1/projects/{pid}")).json()
+    assert body["motion_continuity"] == "none"
+    plan = await _plan(client, shots[0]["id"], model_key="kling-2.5-turbo-i2v")
+    assert plan["continuity"] == "none"
+
+
+async def test_a_last_frame_join_pins_the_next_shots_still(client):
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "last_frame")
+    plan = await _plan(client, shots[0]["id"],
+                       model_key="veo-3.1-fast-i2v", allow_experimental=True)
+    assert plan["continuity"] == "last_frame"
+    assert plan["ok"] is True
+
+
+async def test_the_last_shot_in_the_film_has_nothing_to_join_to(client):
+    """And says so by reporting 'none' rather than warning. A warning nobody
+    can act on is noise that trains people to ignore the real ones."""
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "last_frame")
+    plan = await _plan(client, shots[-1]["id"],
+                       model_key="veo-3.1-fast-i2v", allow_experimental=True)
+    assert plan["continuity"] == "none"
+    assert not any(w["code"].startswith("continuity_next")
+                   for w in plan["warnings"])
+
+
+async def test_a_model_that_cannot_end_where_told_says_so(client):
+    """Silence here would produce a normal-looking, fully-paid-for clip that
+    simply does not join -- discoverable only by watching the film."""
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "last_frame")
+    plan = await _plan(client, shots[0]["id"], model_key="kling-2.5-turbo-i2v")
+    assert plan["continuity"] == "none"
+    assert any(w["code"] == "continuity_unsupported" for w in plan["warnings"])
+
+
+async def test_auto_picks_the_join_the_model_can_actually_make(client):
+    """'auto' is what people mean by "make it continuous". On a model with a
+    closing-frame input that is LAST_FRAME; on one without, chaining is the
+    only mechanism left."""
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "auto")
+    veo = await _plan(client, shots[0]["id"],
+                      model_key="veo-3.1-fast-i2v", allow_experimental=True)
+    assert veo["continuity"] == "last_frame"
+
+
+async def test_chaining_requires_the_previous_shot_to_exist_first(client):
+    """Chained shots are strictly sequential. Generating shot 2 before shot 1
+    has to be reported, not silently cut."""
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "chained")
+    plan = await _plan(client, shots[1]["id"], model_key="kling-2.5-turbo-i2v")
+    assert plan["continuity"] == "none"
+    assert any(w["code"] == "continuity_previous_clip_missing"
+               for w in plan["warnings"])
+
+
+async def test_the_first_shot_has_nothing_to_chain_from(client):
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "chained")
+    plan = await _plan(client, shots[0]["id"], model_key="kling-2.5-turbo-i2v")
+    assert plan["continuity"] == "none"
+    assert not any(w["code"].startswith("continuity_previous")
+                   for w in plan["warnings"])
+
+
+@needs_ffmpeg
+async def test_a_chained_shot_starts_from_the_previous_clips_closing_frame(client):
+    """The end-to-end proof, and the one that matters: once shot 1 has a clip,
+    shot 2 is generated from that clip's final frame rather than from its own
+    still, so the boundary between them is a repeated image and not a cut."""
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "chained")
+
+    await client.post(f"/api/v1/shots/{shots[0]['id']}/motion:generate",
+                      json={"model_key": "kling-2.5-turbo-i2v"})
+    await get_queue().drain()
+
+    plan = await _plan(client, shots[1]["id"], model_key="kling-2.5-turbo-i2v")
+    assert plan["continuity"] == "chained"
+    assert any(w["code"] == "continuity_chained" for w in plan["warnings"])
+
+    r = await client.post(f"/api/v1/shots/{shots[1]['id']}/motion:generate",
+                          json={"model_key": "kling-2.5-turbo-i2v"})
+    assert r.status_code == 202
+    await get_queue().drain()
+
+    async with get_sessionmaker()() as s:
+        shot = await s.get(Shot, uuid.UUID(shots[1]["id"]))
+        assert shot.motion_mode is MotionMode.GENERATED
+        clip = await s.get(Asset, shot.selected_clip_id)
+        # Recorded on the asset so a finished film can be explained months
+        # later without re-deriving it from the project's current settings.
+        assert clip.params["continuity"] == "chained"
+
+
+@needs_ffmpeg
+async def test_a_chained_clip_goes_stale_when_the_clip_before_it_changes(client):
+    """The cascade is the point. A chain whose first link is regenerated no
+    longer joins, and every clip downstream of it has to know."""
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "chained")
+
+    await client.post(f"/api/v1/shots/{shots[0]['id']}/motion:generate",
+                      json={"model_key": "kling-2.5-turbo-i2v"})
+    await get_queue().drain()
+    chained = (await _plan(client, shots[1]["id"],
+                           model_key="kling-2.5-turbo-i2v"))["input_hash"]
+
+    # Replace the first shot's clip with a different one; the second shot was
+    # generated to continue from a frame that no longer exists.
+    async with get_sessionmaker()() as s:
+        first = await s.get(Shot, uuid.UUID(shots[0]["id"]))
+        clip = await s.get(Asset, first.selected_clip_id)
+        clip.checksum = "a-different-clip-entirely"
+        await s.commit()
+
+    after = (await _plan(client, shots[1]["id"],
+                         model_key="kling-2.5-turbo-i2v"))["input_hash"]
+    assert after != chained
+
+
+async def test_a_last_frame_clip_goes_stale_when_the_next_still_changes(client):
+    """Same rule from the other end: the clip was generated to land on a
+    specific image, and that image has been replaced."""
+    pid, shots = await _project_with_stills(client)
+    await _set_continuity(client, pid, "last_frame")
+    kw = dict(model_key="veo-3.1-fast-i2v", allow_experimental=True)
+    before = (await _plan(client, shots[0]["id"], **kw))["input_hash"]
+
+    async with get_sessionmaker()() as s:
+        nxt = await s.get(Shot, uuid.UUID(shots[1]["id"]))
+        still = await s.get(Asset, nxt.selected_image_id)
+        still.checksum = "a-different-still"
+        await s.commit()
+
+    assert (await _plan(client, shots[0]["id"], **kw))["input_hash"] != before
+
+
+async def test_an_unknown_continuity_value_degrades_rather_than_crashes(client):
+    """A project written by a newer build, opened by an older one. Failing to
+    plan would lock the user out of their own film."""
+    pid, shots = await _project_with_stills(client)
+    async with get_sessionmaker()() as s:
+        project = await s.get(Project, uuid.UUID(pid))
+        project.motion_continuity = "some-future-mode"
+        await s.commit()
+    plan = await _plan(client, shots[0]["id"], model_key="kling-2.5-turbo-i2v")
+    assert plan["ok"] is True
+    assert plan["continuity"] == "none"
+    assert any(w["code"] == "continuity_unknown" for w in plan["warnings"])

@@ -61,6 +61,7 @@ def _caps_read(caps) -> dict:
         "max_reference_images": caps.max_reference_images,
         "supports_negative_prompt": caps.supports_negative_prompt,
         "supports_seed": caps.supports_seed,
+        "supports_last_frame": caps.supports_last_frame,
         "audio": caps.audio.value,
         "capability_chips": caps.capability_chips(),
         "price_confidence": caps.pricing.confidence.value,
@@ -105,6 +106,11 @@ async def plan_shot_motion(shot_id: uuid.UUID, body: GenerateMotion,
         "estimated_cost_cents": plan.estimated_cost_cents,
         "price_is_known": plan.price_is_known,
         "input_hash": plan.input_hash,
+        # Resolved, not requested: a project set to 'auto' on a model with no
+        # closing-frame input reports 'chained' here, and a shot with no
+        # neighbour to join reports 'none'. What the picker shows is what the
+        # generation will do.
+        "continuity": plan.continuity.value,
         "ok": plan.ok,
         "warnings": [{"code": n.code, "message": n.message} for n in plan.warnings],
         "blocking": [{"code": n.code, "message": n.message} for n in plan.blocking],

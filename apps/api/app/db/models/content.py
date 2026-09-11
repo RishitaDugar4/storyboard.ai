@@ -44,6 +44,37 @@ class MotionMode(enum.StrEnum):
     MANUAL = "manual"          # something you uploaded
 
 
+class MotionContinuity(enum.StrEnum):
+    """How one shot's clip is joined to the next.
+
+    NONE is the historical behaviour and stays the default: every shot is
+    generated from its own approved still alone, and every boundary is a cut
+    between two unrelated images.
+
+    The other two both make the boundary a repeat of one image instead, and
+    differ only in which end of the clip is pinned:
+
+    LAST_FRAME  tells the model to *end* on the next shot's approved still.
+                Every keyframe in the film is still one a human approved, and
+                shots stay independent of each other's output, so they can be
+                generated in any order or in parallel. Needs a model that
+                declares `last_frame_field`.
+    CHAINED     starts this shot from the previous shot's *rendered* closing
+                frame. Works on every model, which is the whole reason it
+                exists -- but it makes shots strictly sequential, and each
+                generation inherits the last one's compression, so quality
+                drifts over a long unbroken chain.
+
+    AUTO picks LAST_FRAME where the model supports it and CHAINED where it
+    does not, which is what most people mean by "make it continuous".
+    """
+
+    NONE = "none"
+    LAST_FRAME = "last_frame"
+    CHAINED = "chained"
+    AUTO = "auto"
+
+
 # --------------------------------------------------------------------------- #
 class StoryInput(Base, UUIDPk, Timestamps):
     """Versioned: revising the story must never destroy the storyboard you

@@ -200,6 +200,67 @@ def run(
     return stderr
 
 
+#: How far back from the end to grab the closing frame. A clip's true final
+#: frame is sometimes unreadable (a truncated GOP, a container whose declared
+#: duration overshoots its last packet), and a frame 80ms early is visually
+#: identical at 24fps while always existing.
+TAIL_BACKOFF_S = 0.08
+
+
+def extract_tail_frame(src: str | Path, dest: Path, *,
+                       backoff_s: float = TAIL_BACKOFF_S) -> Path:
+    """Write the closing frame of `src` to `dest` as a PNG.
+
+    This is what makes two clips join invisibly on models with no
+    closing-frame input: shot N's last frame becomes shot N+1's first frame,
+    so the boundary between them is a repeat of one image rather than a cut
+    between two unrelated ones.
+
+    PNG, not JPEG, deliberately. The frame is re-encoded by the provider on
+    the way in and again on the way out; starting that chain with generation
+    loss puts a visible quality step exactly at the seam we are trying to
+    hide.
+
+    Two strategies, because neither is reliable alone. `-sseof` is the direct
+    expression of "near the end" but needs a seekable input and silently
+    produces nothing on some containers. Seeking to a measured absolute
+    timestamp always works when ffprobe can read a duration. Trying the cheap
+    one first and falling back costs one failed subprocess in the rare case.
+    """
+    src, dest = Path(src), Path(dest)
+    if not src.exists() or src.stat().st_size == 0:
+        raise FFmpegError(["extract_tail_frame"], 1,
+                          f"cannot read a closing frame from a missing or "
+                          f"empty file: {src}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    attempts: list[list[str]] = [
+        ["-y", "-sseof", f"-{max(backoff_s, 0.04):.3f}", "-i", str(src),
+         "-update", "1", "-frames:v", "1", str(dest)],
+    ]
+    info = probe(src)
+    if info.ok and info.duration_ms:
+        at = max(0.0, info.duration_ms / 1000 - backoff_s)
+        attempts.append(["-y", "-ss", f"{at:.3f}", "-i", str(src),
+                         "-update", "1", "-frames:v", "1", str(dest)])
+        # Last resort for a clip so short that any seek lands past the end.
+        attempts.append(["-y", "-i", str(src), "-update", "1",
+                         "-frames:v", "1", str(dest)])
+
+    errors: list[str] = []
+    for args in attempts:
+        try:
+            run(args, expect=dest)
+            return dest
+        except (FFmpegError, RuntimeError) as exc:
+            errors.append(str(exc)[:200])
+            dest.unlink(missing_ok=True)
+    raise FFmpegError(
+        ["extract_tail_frame"], 1,
+        f"every strategy failed to read a closing frame from {src.name}: "
+        + " | ".join(errors))
+
+
 def concat_demuxer_file(paths: Iterable[Path], dest: Path) -> Path:
     """Write the concat list. Paths are quoted per the demuxer's escaping rules."""
     lines = [f"file '{str(p.resolve()).replace(chr(39), chr(39) * 3)}'"

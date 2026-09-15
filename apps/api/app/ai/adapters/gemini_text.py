@@ -28,6 +28,7 @@ from pydantic import BaseModel
 import logging
 
 from ..ports import AIError, AIErrorKind, StructuredResult, TextPort, Usage
+from .google_key import validate_gemini_key
 from ..structured import RawCall, Repair, generate_with_repair
 
 log = logging.getLogger("hbz.ai")
@@ -164,6 +165,11 @@ class GeminiTextAdapter(TextPort):
     def __init__(self, client: genai.Client | None = None,
                  model: str = DEFAULT_MODEL, api_key: str | None = None,
                  timeout_s: float = DEFAULT_TIMEOUT_S) -> None:
+        # Only when we are the ones building the client: an injected client
+        # carries its own credentials (the tests pass fakes), and demanding a
+        # key alongside one would be asking for something never used.
+        if client is None:
+            api_key = validate_gemini_key(api_key, capability="text")
         self._client = client or genai.Client(
             api_key=api_key,
             # http_options takes milliseconds.

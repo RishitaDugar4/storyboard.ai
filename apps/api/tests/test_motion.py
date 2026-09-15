@@ -942,15 +942,30 @@ def test_veo_models_are_experimental_until_a_call_succeeds():
         allow_premium=True)}
 
 
-def test_an_ephemeral_token_is_named_as_such_not_reported_as_a_server_error():
-    """An AQ.… token authenticates for minutes and then 401s on everything,
-    which reads as a broken integration rather than an expired credential."""
+def test_an_authorization_key_is_accepted_not_mistaken_for_a_session_token():
+    """AQ. is Google's authorization-key format -- service-account bound,
+    Gemini-scoped, durable -- and the direction the API is moving.
+
+    This test exists because the adapter once refused it, believing it to be
+    an ephemeral AI Studio token. A live AQ. key returns 200 from
+    GET /v1beta/models listing every model, which settled it. Refusing a valid
+    credential at construction, where nothing downstream can recover, is a
+    worse failure than the one that guard was written to prevent.
+    """
     from app.ai.adapters.veo_video import VeoVideoAdapter
-    from app.ai.ports import AIError
-    with pytest.raises(AIError) as err:
-        VeoVideoAdapter("AQ." + "x" * 50)
-    assert err.value.code == "not_an_api_key"
-    assert "expire" in err.value.detail.lower()
+    assert VeoVideoAdapter("AQ." + "x" * 50) is not None
+    assert VeoVideoAdapter("AIza" + "x" * 35) is not None
+
+
+def test_a_bad_credential_is_diagnosed_on_the_401_not_guessed_from_its_shape():
+    """The provider owns its key format and will change it. The only place
+    that can be authoritative about a key is the API rejecting it."""
+    from app.ai.adapters.veo_video import _classify
+    from app.ai.ports import AIErrorKind
+    err = _classify(401, '{"message":"API key not valid"}')
+    assert err.kind is AIErrorKind.AUTH
+    # It must not send the operator off to "fix" a key whose shape is fine.
+    assert "BOTH" in err.detail and "AQ." in err.detail
 
 
 def test_veo_classifies_a_policy_refusal_separately_from_a_bad_request():

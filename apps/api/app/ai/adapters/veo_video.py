@@ -28,6 +28,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 
 from ..catalog import get as get_caps
+from .google_key import validate_gemini_key
 from ..ports import (AIError, AIErrorKind, OperationState, Submission,
                      VideoRequest, VideoResult)
 
@@ -72,7 +73,17 @@ def _classify_operation_error(err: dict) -> AIError:
 def _classify(status: int, body: str) -> AIError:
     low = body.lower()
     if status in (401, 403):
-        return AIError(AIErrorKind.AUTH, "unauthorized", body[:400])
+        # The place a bad credential is actually diagnosed. Shape-checking a
+        # key before sending it once refused a valid AQ. authorization key
+        # (see adapters/google_key.py); the API is the authority, so the
+        # diagnosis belongs here, where it is answering an actual 401.
+        return AIError(
+            AIErrorKind.AUTH, "unauthorized",
+            body[:400] + "  -- BOTH GEMINI_API_KEY formats are valid "
+            "('AIza...' standard, 'AQ....' authorization), so the problem is "
+            "not the shape of the key: check that it is not revoked, that its "
+            "project has the Gemini API enabled, and that an authorization "
+            "key's service account may reach this model.")
     if status == 429:
         return AIError(AIErrorKind.QUOTA, "rate_limited", body[:400])
     if status == 400:
@@ -95,22 +106,9 @@ class VeoVideoAdapter:
     def __init__(self, api_key: str, *, timeout_s: float = 120.0,
                  person_generation: str = "allow_adult") -> None:
         import httpx
-        if not api_key:
-            raise AIError(AIErrorKind.AUTH, "missing_key",
-                          "GEMINI_API_KEY is not set")
-        if not api_key.startswith("AIza"):
-            # An ephemeral AI Studio token ("AQ.…") authenticates for a few
-            # minutes and then 401s on everything, which reads as a broken
-            # integration rather than an expired credential. Named here so it
-            # is diagnosed in one line instead of one afternoon.
-            raise AIError(
-                AIErrorKind.AUTH, "not_an_api_key",
-                f"GEMINI_API_KEY does not look like a Gemini API key: expected "
-                f"a 39-character value starting 'AIza', got {len(api_key)} "
-                f"characters starting {api_key[:3]!r}. Ephemeral tokens "
-                f"(AQ.…) expire within minutes. Create a durable key at "
-                f"https://aistudio.google.com/apikey")
-        self._key = api_key
+        # The rule used to live here, and only here -- which is why the same
+        # bad token reached text and speech undiagnosed. See google_key.py.
+        self._key = api_key = validate_gemini_key(api_key, capability="video")
         self._person_generation = person_generation
         self._client = httpx.AsyncClient(
             timeout=timeout_s,

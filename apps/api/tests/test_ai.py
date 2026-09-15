@@ -465,3 +465,85 @@ def test_the_pacing_key_separates_models():
     a = registry._paced(FakeSpeechAdapter(), "speech", "8", 8)
     b = registry._paced(Other(), "speech", "8", 8)
     assert a._limiter.key != b._limiter.key
+
+
+# --------------------------------------------------------------------------- #
+# Credentials. One rule, applied everywhere the key is used.
+#
+# The failure this closes: an AI Studio session token sat in .env and only the
+# Veo adapter said so. Text and speech took the same token and failed later
+# with a bare 401, which reads as a broken integration rather than an expired
+# credential -- and story analysis, storyboards and narration all go through
+# those two.
+# --------------------------------------------------------------------------- #
+from app.ai.adapters.google_key import validate_gemini_key   # noqa: E402
+
+AUTHORIZATION = "AQ." + "x" * 50      # service-account bound, Gemini-scoped
+STANDARD = "AIza" + "x" * 35          # project-scoped, billing and quota
+
+
+@pytest.mark.parametrize("key", [AUTHORIZATION, STANDARD])
+def test_both_gemini_credential_formats_are_accepted(key):
+    """Google issues two, and both are durable. An earlier guard refused the
+    AQ. form as an ephemeral session token -- it is not, and a live one lists
+    every model over GET /v1beta/models."""
+    assert validate_gemini_key(key, capability="text") == key
+
+
+def test_a_key_of_an_unfamiliar_shape_is_not_refused():
+    """The provider owns its credential format and will change it again. An
+    allowlist of prefixes here is a clock counting down to an outage that
+    looks like our bug -- so an unknown shape is sent, and the API decides."""
+    assert validate_gemini_key("XYZ.something-new") == "XYZ.something-new"
+
+
+def test_an_absent_key_is_still_refused_before_a_client_is_built():
+    """The one check that cannot be wrong: absent is absent."""
+    with pytest.raises(AIError) as err:
+        validate_gemini_key("", capability="narration")
+    assert err.value.kind is AIErrorKind.AUTH
+    assert err.value.code == "missing_key"
+    # The capability names which of the three adapters spoke.
+    assert "narration" in err.value.detail
+
+
+def test_key_formats_are_described_for_diagnostics_but_never_enforced():
+    from app.ai.adapters.google_key import describe_key
+    assert "authorization" in describe_key(AUTHORIZATION)
+    assert "standard" in describe_key(STANDARD)
+    assert "unrecognised" in describe_key("XYZ.new")
+
+
+def test_no_google_adapter_refuses_a_valid_key_at_construction():
+    """The regression this closes. All three take the same GEMINI_API_KEY,
+    and a guard that rejects a working credential at construction breaks story
+    analysis, storyboards, narration and motion at once -- with nothing
+    downstream able to recover."""
+    from app.ai.adapters.gemini_speech import GeminiSpeechAdapter
+    from app.ai.adapters.gemini_text import GeminiTextAdapter
+    from app.ai.adapters.veo_video import VeoVideoAdapter
+
+    for build in (lambda: VeoVideoAdapter(AUTHORIZATION),
+                  lambda: GeminiSpeechAdapter(AUTHORIZATION),
+                  lambda: GeminiTextAdapter(api_key=AUTHORIZATION)):
+        assert build() is not None
+
+
+def test_every_google_adapter_still_refuses_an_absent_key():
+    from app.ai.adapters.gemini_speech import GeminiSpeechAdapter
+    from app.ai.adapters.gemini_text import GeminiTextAdapter
+    from app.ai.adapters.veo_video import VeoVideoAdapter
+
+    for build in (lambda: VeoVideoAdapter(""),
+                  lambda: GeminiSpeechAdapter(""),
+                  lambda: GeminiTextAdapter(api_key="")):
+        with pytest.raises(AIError) as err:
+            build()
+        assert err.value.code == "missing_key"
+
+
+def test_an_injected_client_does_not_need_a_key():
+    """The text adapter accepts a pre-built client, and the tests pass fakes.
+    Demanding a key alongside one would be asking for something never used."""
+    adapter = gem.GeminiTextAdapter(client=object(), api_key=None)
+    assert adapter._client is not None

@@ -21,6 +21,7 @@ from google.genai import types
 
 from ..audio import parse_pcm_mime, pcm_duration_ms, pcm_to_wav
 from ..ports import AIError, AIErrorKind, SpeechResult, Usage
+from .google_key import validate_gemini_key
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-tts"
 DEFAULT_VOICE = "Kore"
@@ -69,9 +70,7 @@ class GeminiSpeechAdapter:
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL,
                  *, timeout_s: float = 120.0) -> None:
-        if not api_key:
-            raise AIError(AIErrorKind.AUTH, "missing_key",
-                          "GEMINI_API_KEY is not set")
+        api_key = validate_gemini_key(api_key, capability="narration")
         self.model = model
         self._client = genai.Client(
             api_key=api_key,
